@@ -1,6 +1,9 @@
 const router = require('express').Router();
-const { createSmartTable } = require('../controllers/smart-tables');
+const { listValidTables, create, fill } = require('../controllers/smart-tables');
 
-router.post('/create', createSmartTable);
+
+router.get('/valid-tables', listValidTables);
+router.post('/create', create);
+router.post('/fill', fill)
 
 module.exports = router;

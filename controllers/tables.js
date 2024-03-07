@@ -1,8 +1,10 @@
 const { Table } = require("../models/Table");
 const { Label } = require("../models/Label");
 const { Record } = require("../models/Record");
+const { Key } = require("../models/Key");
 const { checkAndCreateDir, upload } = require("../utils/fs");
 const { insertTransform } = require("../utils/db");
+const { updateKey } = require("./keys");
 const { pipeline } = require("stream");
 const { join } = require("path");
 const csv = require("csv-parser");
@@ -19,6 +21,9 @@ module.exports.link = (req, res) => {
         Key.findById(req.body.oldKeyId)
           .then((key) => {
             // check if key._id is unique amongst sibling labels (labels of the same table)
+            if (!req.body.tableId) {
+              return res.status(400).send('Please provide a tableId.')
+            }
             Table.findById(req.body.tableId)
               .then((table) => {
                 const foundLabel = table.metadata.labels.find((l) =>
@@ -79,7 +84,8 @@ module.exports.link = (req, res) => {
           .then((key) => {
             updateKey(label, key._id, updateCallBack);
           })
-          .catch(() => {
+          .catch((err) => {
+            console.log(err.message);
             res.status(500).send("error saving new key");
           });
       }
@@ -100,7 +106,8 @@ module.exports.link = (req, res) => {
     })
     .catch((err) => {
       console.log(err.message);
-      cb({ type: "error", message: "label not found" });
+      res.status(500).send("error finding label");
+      // cb({ type: "error", message: "label not found" });
     });
 };
 
@@ -154,7 +161,7 @@ module.exports.insert = (req, res) => {
                 })
                 ;
             })
-            
+
             .catch((err) => {
               console.error("Error: ", err.message);
               return res.status(500).send('Error');
@@ -165,7 +172,7 @@ module.exports.insert = (req, res) => {
           if (labelIndex < labels.length - 1)
             pushLabel(labels[++labelIndex], table, pushLabelCb);
           else {
-            return res.json({ tableUUID: table.metadata.uuid });
+            return res.json({ tableId: table._id });
           }
         }
         pushLabel(labels[labelIndex], table, pushLabelCb);
@@ -256,36 +263,43 @@ module.exports.upload = (req, res) => {
 };
 
 module.exports.read = (req, res) => {
-  const pipeline = [
+  const tablePipeline = [
     {
       $match: {
-        "metadata.uuid": req.body.tableUUID,
+        $expr: {
+          $eq: ["$_id", { $toObjectId: req.body.tableId }]
+        },
         "metadata.status": {
           $in: ["insert-complete", "active"],
         },
       },
-    },
+    }
   ];
 
-  Table.aggregate(pipeline)
-    .then((table) => {
-      if (!table.length) {
+  Table.aggregate(tablePipeline)
+    .then((tableIds) => {
+      if (!tableIds.length) {
         return res.status(400).send("Invalid or Non-Existent Table");
       }
-      Record.aggregate([
-        { $match: { _id: { $exists: true } } },
-        {
-          $project: { content: 1, tableId: { $toString: "$metadata.tableId" } },
-        },
-        { $limit: req.body.limit || 10 },
-        // { $project: { _id: 0, id: "$_id", content: 1 } },
-      ]).then((records) => {
-        res.json(records);
-      });
+      const foundTable = tableIds[0];
+      Record
+        .aggregate([
+          {
+            $match: { $expr: { $eq: ["$metadata.tableId", foundTable._id] } }
+          },
+          {
+            $project: { content: 1, tableId: { $toString: "$metadata.tableId" } },
+          },
+          { $limit: req.body.limit || 10 }
+        ])
+        .then((records) => {
+          console.log(records);
+          return res.json(records);
+        });
     })
     .catch((err) => {
-      console.error(err.message);
-      res.send("Aha!");
+      console.error("Error: ", err.message);
+      return res.send("Error");
     });
 };
 

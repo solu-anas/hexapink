@@ -6,7 +6,12 @@ const smartTableSchema = new Schema({
         required: true
     },
     metadata: {
-        skeletonTableId: Types.ObjectId,
+        // keys: [Types.ObjectId],
+        skeletonTableId: {
+            type: Types.ObjectId,
+            required: true
+        },
+        sourceTables: [Types.ObjectId],
         collections: [Types.ObjectId]
     }
 });

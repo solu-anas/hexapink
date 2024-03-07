@@ -28,7 +28,6 @@ const tableSchema = new Schema({
       type: String,
       default: () => new UUID()
     },
-    smartTables: [Schema.Types.ObjectId],
     labels: [Schema.Types.ObjectId],
   },
 });
