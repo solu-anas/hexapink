@@ -154,6 +154,7 @@ module.exports.insert = (req, res) => {
                 })
                 ;
             })
+            
             .catch((err) => {
               console.error("Error: ", err.message);
               return res.status(500).send('Error');
