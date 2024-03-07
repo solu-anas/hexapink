@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { createSmartTable } = require('../controllers/createSmartTable');
+const { createSmartTable } = require('../controllers/smart-tables');
 
 router.post('/create', createSmartTable);
 
