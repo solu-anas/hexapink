@@ -195,7 +195,7 @@ module.exports.fill = (req, res) => {
                           }
                         })
                         .catch((err) => {
-                          return res.send(`Error: ${err.message}.`);S
+                          return res.send(`Error: ${err.message}.`); S
                         })
                     })
                     .catch((err) => {
@@ -219,5 +219,21 @@ module.exports.fill = (req, res) => {
     .catch((err) => {
       console.error('Error: ', err.message);
       return res.status(404).send('Smart Table Not Found.')
+    })
+};
+
+module.exports.read = (req, res) => {
+  SmartTable.findById(req.body.smartTableId)
+    .then((smartTable) => {
+      if (!smartTable.metadata.sourceTables) {
+        console.error(`Error: ${err.message}`);
+        return res.status(400).send('Bad Request');
+      }
+
+      
+    })
+    .catch((err) => {
+      console.error(`Error: ${err.message}`);
+      return res.status(404).send('Smart Table Not Found');
     })
 };
