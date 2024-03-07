@@ -91,6 +91,10 @@ module.exports.create = (req, res) => {
   if (!req.body.skeletonTableId) {
     return res.status(400).send('Please Provide skeletonTableId');
   }
+
+  if (!req.body.smartTableName) {
+    return res.status(400).send('Please Provide a Name to create a Smart Table');
+  }
   Table.findById(req.body.skeletonTableId)
     .then((table) => {
       const newSmartTable = new SmartTable({
@@ -118,68 +122,102 @@ module.exports.create = (req, res) => {
 }
 
 module.exports.fill = (req, res) => {
-  // get valid source tables (POST /api/smart-tables/valid-tables)
-  // ***
-  // check whether sent sourceTableIds are valid
-  // sourceTabelIds.length === validSourceTables.length
-  // change smartTable.metadata.sourceTables
-
-  // get validSourceTables
   SmartTable.findById(req.body.smartTableId)
     .then((smartTable) => {
       Table.findById(smartTable.metadata.skeletonTableId)
-      .then((table) => {
-        const labels = table.metadata.labels;
-      
-        Label.aggregate([])
-      })
-      .catch((err) => {
-        console.log("Error: ", err.message);
-        return res.status(400).send('Something Went Wrong.')
-      })
+        .then((skeletonTable) => {
+          Label.aggregate([
+            { $match: { _id: { $in: skeletonTable.metadata.labels } } },
+            { $project: { "keyId": "$metadata.keyId" } }
+          ])
+            .then((skeletonKeyIds) => {
+              Key.aggregate([
+                {
+                  $match:
+                    { _id: { $in: skeletonKeyIds } }
+                },
+                {
+                  $project: { _id: 0 }
+                }
+              ])
+                .then((keys) => {
+                  Label.aggregate([
+                    {
+                      $match: { "metadata.keyId": { $in: keys } }
+                    },
+                    {
+                      $project: { "labelId": "$_id" }
+                    }
+                  ])
+                    .then((labelIds) => {
+                      Table.aggregate([
+                        {
+                          $match: { _id: { $exists: true } }
+                        },
+                        {
+                          $project: {
+                            "metadata.labels": {
+                              $map: {
+                                input: "$metadata.labels",
+                                as: "label",
+                                in: { $toString: "$$label" },
+                              },
+                            },
+                          },
+                        },
+                        {
+                          $project: {
+                            "metadata.labels": {
+                              $filter: {
+                                input: "$metadata.labels",
+                                as: "label",
+                                cond: {
+                                  $in: ["$$label", labelIds],
+                                },
+                              },
+                            },
+                          },
+                        },
+                      ])
+                        .then((smartTableValidTables) => {
+                          if (smartTableValidTables.length === req.body.sourceTableIds.length) {
+                            smartTable.updateOne({ $set: { "metadata.sourceTables": req.body.sourceTableIds } });
+                            smartTable
+                              .save()
+                              .then((saved) => {
+                                console.log(saved);
+                                return res.json({ updated: saved });
+                              })
+                              .catch((err) => {
+                                console.error(`Error: ${err.message}`);
+                                return res.send(`Error: ${err.message}`);
+                              })
+                          }
+                        })
+                        .catch((err) => {
+                          return res.send(`Error: ${err.message}.`);S
+                        })
+                    })
+                    .catch((err) => {
+                      return res.send(`Error: ${err.message}.`);
+                    })
+                })
+                .catch((err) => {
+                  return res.send(`Error: ${err.message}.`);
+                })
+            })
+            .catch((err) => {
+              console.error('Error: ', err.message);
+              return res.status(500).send('Error.')
+            })
+        })
+        .catch((err) => {
+          console.log("Error: ", err.message);
+          return res.status(400).send('Something Went Wrong.')
+        })
     })
     .catch((err) => {
       console.error('Error: ', err.message);
       return res.status(404).send('Smart Table Not Found.')
     })
-
-  const pipeline = [
-    { $match: { _id: { $in: req.body.sourceTablesIds } } },
-    {
-      $project: {
-        "metadata.labels": {
-          $map: {
-            input: "$metadata.labels",
-            as: "label",
-            in: { $toString: "$$label" },
-          },
-        },
-      },
-    },
-    {
-      $project: {
-        "metadata.labels": {
-          $filter: {
-            input: "$metadata.labels",
-            as: "label",
-            cond: {
-              $in: ["$$label", labels.map((l) => l.labelId)],
-            },
-          },
-        },
-      },
-    },
-  ];
-
-  Table
-    .aggregate(pipeline)
-    .then((validSourceTables) => {
-      console.log(validSourceTables);
-      return res.json(validSourceTables);
-    })
-    .catch((err) => {
-      console.error('Error: ', err.message);
-      return res.status(404).send('Error');
-    });
-
 };

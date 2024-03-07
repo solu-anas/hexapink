@@ -11,7 +11,10 @@ const smartTableSchema = new Schema({
             type: Types.ObjectId,
             required: true
         },
-        sourceTables: [Types.ObjectId],
+        sourceTables: {
+            type: [Types.ObjectId],
+            default: null
+        },
         collections: [Types.ObjectId]
     }
 });
