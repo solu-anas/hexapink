@@ -15,6 +15,12 @@ const { Label } = require("../models/Label");
 const { Key } = require("../models/Key");
 
 module.exports.listValidTables = (req, res) => {
+  if (!req.body.chosenKeys) {
+    return res.status(400).send("Please specify your chosen keys");
+  }
+  if (!req.body.chosenKeys.length) {
+    return res.status(400).send("chosenKeys can't be empty");
+  }
   Key.aggregate([
     { $match: { _id: { $exists: true } } },
     { $project: { _id: 0, newId: { $toString: "$_id" } } },

@@ -12,62 +12,74 @@ const formidable = require("formidable").formidable;
 const fs = require("fs");
 
 module.exports.link = (req, res) => {
+  if (!(req.body.labelId)) {
+    return res.status(400).send("Please provide a labelId");
+  }
   // find label
   Label.findById(req.body.labelId)
     .then((label) => {
+      if (!label) {
+        return res.status(404).send('there is no label with the provided id')
+      }
       // check if req.body.oldKeyId is set
       if (req.body.oldKeyId) {
         // check if the provided id is valid
         Key.findById(req.body.oldKeyId)
           .then((key) => {
             // check if key._id is unique amongst sibling labels (labels of the same table)
+            if (!key) {
+              return res.status(404).send('there is no key with the provided id')
+            }
             if (!req.body.tableId) {
               return res.status(400).send('Please provide a tableId.')
             }
             Table.findById(req.body.tableId)
               .then((table) => {
+                if (!table) {
+                  return res.status(404).send("table not found");
+                }
                 const foundLabel = table.metadata.labels.find((l) =>
                   label._id.equals(l)
                 );
-                console.log(foundLabel);
                 if (!foundLabel) {
-                  res.status(404).send("label not found in table");
-                } else {
-                  Label.aggregate([
-                    { $match: { "metadata.keyId": key._id } },
-                    { $project: { newId: { $toString: "$_id" } } },
-                    {
-                      $match: {
-                        newId: {
-                          $in: table.metadata.labels.map((l) =>
-                            l.toHexString()
-                          ),
-                        },
+                  return res.status(404).send("label not found in table");
+                }
+                Label.aggregate([
+                  { $match: { "metadata.keyId": key._id } },
+                  { $project: { newId: { $toString: "$_id" } } },
+                  {
+                    $match: {
+                      newId: {
+                        $in: table.metadata.labels.map((l) =>
+                          l.toHexString()
+                        ),
                       },
                     },
-                  ])
-                    .then((matchingLabels) => {
-                      // then reassign newKeyId
-                      if (!matchingLabels.length) {
-                        updateKey(label, key._id, updateCallBack);
-                      } else {
-                        res
-                          .status(400)
-                          .send("can't link to sibling labels to the same key");
-                      }
-                    })
-                    .catch((err) => {
-                      console.log(err.message);
-                      res.status(500).send("error checking sibling labels");
-                    });
-                }
+                  },
+                ])
+                  .then((matchingLabels) => {
+                    // then reassign newKeyId
+                    if (!matchingLabels.length) {
+                      updateKey(label, key._id, updateCallBack);
+                    } else {
+                      res
+                        .status(400)
+                        .send("can't link sibling labels to the same key");
+                    }
+                  })
+                  .catch((err) => {
+                    console.log(err.message);
+                    res.status(500).send("error checking sibling labels");
+                  });
               })
-              .catch(() => {
-                res.status(404).send("table not found");
+              .catch((err) => {
+                console.log(err.message);
+                res.status(500).send("Error finding table");
               });
           })
-          .catch(() => {
-            res.status(404).send("there is no key with the provided id");
+          .catch((err) => {
+            console.log(err.message);
+            res.status(500).send("Error finding key");
           });
       }
       // check if req.body.newKeyName is set
@@ -86,8 +98,10 @@ module.exports.link = (req, res) => {
           })
           .catch((err) => {
             console.log(err.message);
-            res.status(500).send("error saving new key");
+            res.status(500).send("Error saving new key");
           });
+      } else {
+        res.status(400).send("Please provide a newKeyName or an oldKeyId");
       }
       function updateCallBack({ type, message }) {
         switch (type) {
@@ -106,13 +120,15 @@ module.exports.link = (req, res) => {
     })
     .catch((err) => {
       console.log(err.message);
-      res.status(500).send("error finding label");
-      // cb({ type: "error", message: "label not found" });
+      res.status(500).send("Error finding label");
     });
 };
 
 module.exports.insert = (req, res) => {
-  Table.findOne({ "metadata.uuid": req.body.tableUUID })
+  if (!(req.body.tableId)) {
+    return res.status(400).send("Please provide a tableId");
+  }
+  Table.findById(req.body.tableId)
     .then((table) => {
       if (!table) return res.status(404).send("Table Not Found");
       else if (table.metadata.status !== "upload-complete") return res.status(400).send("Bad Request");
@@ -125,15 +141,14 @@ module.exports.insert = (req, res) => {
       // run pipeline
       pipeline(reader, parser, inserter, (err) => {
         if (err) {
-          console.error("Pipeline failed.", err);
-          res.send(`Error: ${err.message}`);
-        } else {
-          Table.findOneAndUpdate(table._id, {
-            "metadata.status": "insert-complete",
-          }).then((updatedTable) => {
-            console.log("Pipeline succeeded.");
-          });
+          console.error("Pipeline failed.", err.message);
+          return res.status(500).send(`Error inserting table`);
         }
+        Table.findOneAndUpdate(table._id, {
+          "metadata.status": "insert-complete",
+        }).then((updatedTable) => {
+          console.log("Pipeline succeeded.");
+        });
       });
 
       parser.once("data", (chunk) => {
@@ -157,14 +172,14 @@ module.exports.insert = (req, res) => {
                 .then(cb)
                 .catch((err) => {
                   console.error("Error: ", err.message);
-                  return res.status(500).send("Error");
+                  return res.status(500).send("Error updating table labels");
                 })
                 ;
             })
 
             .catch((err) => {
               console.error("Error: ", err.message);
-              return res.status(500).send('Error');
+              return res.status(500).send('Error creating labels');
             });
         }
 
@@ -182,7 +197,7 @@ module.exports.insert = (req, res) => {
     })
     .catch((err) => {
       console.error('Error: ', err.message);
-      return res.status(500).send('Error');
+      return res.status(500).send('Error finding table');
     })
     ;
 };
@@ -246,7 +261,7 @@ module.exports.upload = (req, res) => {
               Table.findOneAndUpdate(savedTable._id, {
                 "metadata.status": "upload-complete",
               }).then((updatedTable) => {
-                res.json({ tableUUID: updatedTable.metadata.uuid });
+                res.json({ tableId: updatedTable._id });
               });
               break;
             case "error":
@@ -299,11 +314,14 @@ module.exports.read = (req, res) => {
     })
     .catch((err) => {
       console.error("Error: ", err.message);
-      return res.send("Error");
+      return res.status(500).send("Error Finding table");
     });
 };
 
 module.exports.list = (req, res) => {
+  if (!(req.body.statusList)) {
+    return res.status(400).send("Please provide a statusList");
+  }
   const pipeline = [
     {
       $match: {
@@ -320,12 +338,15 @@ module.exports.list = (req, res) => {
     })
     .catch((err) => {
       console.error("Error: ", err.message);
-      res.status(500).send("Error");
+      res.status(500).send("Error listing tables");
     });
 };
 
 module.exports.getSchema = (req, res) => {
-  Table.findOne({ "metadata.uuid": req.body.tableUUID })
+  if (!(req.body.tableId)) {
+    return res.status(500).send("Please provide a tableId");
+  }
+  Table.findById(req.body.tableId)
     .then((table) => {
       Label.aggregate([{ $match: { _id: { $in: table.metadata.labels } } }])
         .then((labels) => {
@@ -333,11 +354,11 @@ module.exports.getSchema = (req, res) => {
         })
         .catch((err) => {
           console.error("Error: ", err.message);
-          return res.status(500).send("Error");
+          return res.status(500).send("Error finding labels");
         });
     })
     .catch((err) => {
       console.error("Error: ", err.message);
-      return res.status(500).send("Error");
+      return res.status(500).send("Error finding table");
     });
 };
