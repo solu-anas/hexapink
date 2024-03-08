@@ -13,13 +13,11 @@ const { SmartTable } = require("../models/SmartTable");
 const { Table } = require("../models/Table");
 const { Label } = require("../models/Label");
 const { Key } = require("../models/Key");
+const { Record } = require("../models/Record");
 
 module.exports.listValidTables = (req, res) => {
   if (!req.body.chosenKeys) {
-    return res.status(400).send("Please specify your chosen keys");
-  }
-  if (!req.body.chosenKeys.length) {
-    return res.status(400).send("chosenKeys can't be empty");
+    return res.status(400).send("Please specify smartTableId");
   }
   Key.aggregate([
     { $match: { _id: { $exists: true } } },
@@ -187,7 +185,7 @@ module.exports.fill = (req, res) => {
                       ])
                         .then((smartTableValidTables) => {
                           if (smartTableValidTables.length === req.body.sourceTableIds.length) {
-                            smartTable.updateOne({ $set: { "metadata.sourceTables": req.body.sourceTableIds } });
+                            smartTable.updateOne({ $set: { "metadata.sourceTableIds": req.body.sourceTableIds } });
                             smartTable
                               .save()
                               .then((saved) => {
@@ -231,12 +229,156 @@ module.exports.fill = (req, res) => {
 module.exports.read = (req, res) => {
   SmartTable.findById(req.body.smartTableId)
     .then((smartTable) => {
-      if (!smartTable.metadata.sourceTables) {
+      if (!smartTable.metadata.skeletonTableId) {
         console.error(`Error: ${err.message}`);
-        return res.status(400).send('Bad Request');
+        return res.status(400).send('no skeleton table');
       }
-
-      
+      if (!smartTable.metadata.sourceTableIds) {
+        console.error(`Error: ${err.message}`);
+        return res.status(400).send('no source tables');
+      }
+      Table.findById(smartTable.metadata.skeletonTableId)
+        .then((skeletonTable) => {
+          console.log(skeletonTable);
+          Label.aggregate([
+            { $match: { _id: { $exists: true } } },
+            {
+              $project: {
+                "keyId": "$metadata.keyId",
+                labelId: { $toString: "$_id" },
+                metadata: 1
+              }
+            },
+            {
+              $lookup:
+              {
+                from: "keys",
+                localField: "metadata.keyId",
+                foreignField: "_id",
+                as: "key"
+              }
+            },
+            { $unwind: "$key" },
+            {
+              $project: {
+                "keyName": "$key.content.keyName",
+                keyId: { $toString: "$keyId" },
+                labelId: { $toString: "$labelId" },
+              }
+            },
+            {
+              $project: {
+                _id: 0,
+              }
+            },
+            { $match: { labelId: { $in: skeletonTable.metadata.labels.map((l) => (l.toHexString())) } } },
+            { $match: { "keyId": { $exists: true } } },
+          ])
+            .then((skeletonLabels) => {
+              const skeletonKeyIds = skeletonLabels.map((l) => (l.keyId));
+              Table.aggregate([
+                { $match: { _id: { $exists: true } } },
+                {
+                  $lookup:
+                  {
+                    from: "labels",
+                    localField: "metadata.labels",
+                    foreignField: "_id",
+                    as: "validLabels"
+                  }
+                },
+                {
+                  $project: {
+                    "validLabels": {
+                      $filter: {
+                        input: "$validLabels",
+                        as: "label",
+                        cond: {
+                          $in: [{ $toString: "$$label.metadata.keyId" }, skeletonKeyIds],
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  $project: {
+                    _id: { $toString: "$_id" },
+                    "validLabels": {
+                      $map: {
+                        input: "$validLabels",
+                        as: "label",
+                        in: {
+                          labelName: "$$label.content.name",
+                          labelId: { $toString: "$$label._id" },
+                          keyId: { $toString: "$$label.metadata.keyId" },
+                        },
+                      },
+                    },
+                  },
+                },
+                {
+                  $match: {
+                    $expr: {
+                      $eq: [{ $size: "$validLabels" }, skeletonKeyIds.length]
+                    }
+                  }
+                }
+              ]).then((validSourceTables) => {
+                // return res.status(200).json(validSourceTables);
+                // #########################
+                // read Recoreds starts here
+                // #########################
+                const validSourceTableIds = validSourceTables.map((t) => (t._id));
+                Record.aggregate([
+                  { $match: { _id: { $exists: true } } },
+                  { $project: { "content": 1, "tableId": { $toString: "$metadata.tableId" } } },
+                  { $match: { "tableId": { $in: validSourceTableIds } } },
+                  { $skip: req.body.skip || 0 },
+                  { $limit: req.body.limit || 10 },
+                ]).then((records) => {
+                  const smartRecords = records.map((r) => {
+                    const validSourceTable = validSourceTables.find((t) => (t._id === r.tableId));
+                    const recordEntries = Object.entries(r.content);
+                    const newRecord = recordEntries
+                      .map((recordEntry) => {
+                        const validLabel = validSourceTable.validLabels.find((l) => {
+                          return (l.labelName === recordEntry[0])
+                        });
+                        if (!validLabel) {
+                          return null;
+                        }
+                        return {
+                          ...validLabel,
+                          value: recordEntry[1],
+                          keyName: skeletonLabels.find((l) => (l.keyId === validLabel.keyId)).keyName
+                        };
+                      }).filter((r) => r);
+                    return newRecord;
+                  })
+                  return res.status(200).json(smartRecords.map((sr) => {
+                    return sr.reduce((result, labelObject) => {
+                      console.log(labelObject);
+                      return { ...result, [labelObject.keyName]: labelObject.value }
+                    }, {})
+                  }));
+                }).catch((err) => {
+                  console.log(err)
+                  return res.status(500).send('Error finding valid records');
+                })
+              }).catch((err) => {
+                console.log(err)
+                return res.status(500).send('Error finding valid tables');
+              })
+            })
+            .catch((err) => {
+              console.log(err)
+              return res.status(500).send('Error finding skeletonTable Labels');
+            })
+        })
+        .catch((err) => {
+          console.log(err)
+          return res.status(500).send('Error finding skeletonTable');
+        })
     })
     .catch((err) => {
       console.error(`Error: ${err.message}`);
