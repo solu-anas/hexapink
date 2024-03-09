@@ -15,6 +15,17 @@ const { Label } = require("../models/Label");
 const { Key } = require("../models/Key");
 const { Record } = require("../models/Record");
 
+module.exports.list = (req, res) => {
+  SmartTable.aggregate([{ $limit: req.body.limit || 10 }])
+    .then((smartTables) => {
+      res.json(smartTables)
+    })
+    .catch((err) => {
+      console.log(err);
+      res.status(500).send("Error finding smartTables");
+    })
+}
+
 module.exports.listValidTables = (req, res) => {
   if (!req.body.chosenKeys) {
     return res.status(400).send("Please specify smartTableId");
@@ -95,7 +106,6 @@ module.exports.create = (req, res) => {
   if (!req.body.skeletonTableId) {
     return res.status(400).send('Please Provide skeletonTableId');
   }
-
   if (!req.body.smartTableName) {
     return res.status(400).send('Please Provide a Name to create a Smart Table');
   }
@@ -126,41 +136,69 @@ module.exports.create = (req, res) => {
 }
 
 module.exports.fill = (req, res) => {
+  console.log("#### /api/smart-tables/fill ####")
+  if (!(req.body.smartTableId)) {
+    return res.status(400).send("Please provide a smartTableId");
+  }
+  if (!(req.body.sourceTableIds)) {
+    return res.status(400).send("Please provide sourceTableIds");
+  }
   SmartTable.findById(req.body.smartTableId)
     .then((smartTable) => {
+      console.log("#### smartTTable ####")
+      console.log(smartTable);
       Table.findById(smartTable.metadata.skeletonTableId)
         .then((skeletonTable) => {
+          console.log("#### skeletonTable ####")
+          console.log(skeletonTable);
           Label.aggregate([
-            { $match: { _id: { $in: skeletonTable.metadata.labels } } },
-            { $project: { "keyId": "$metadata.keyId" } }
+            { $match: { _id: { $in: skeletonTable.metadata.labels }, "metadata.keyId": { $exists: true } } },
+            { $project: { "keyId": "$metadata.keyId" } },
           ])
-            .then((skeletonKeyIds) => {
+            .then((skeletonLabels) => {
+              console.log("#### skeletonLabels ####")
+              console.log(skeletonLabels);
               Key.aggregate([
                 {
                   $match:
-                    { _id: { $in: skeletonKeyIds } }
+                    { _id: { $exists: true } }
+                },
+                {
+                  $project: { "keyId": { $toString: "$_id" } }
+                },
+                {
+                  $match:
+                  {
+                    "keyId": { $in: skeletonLabels.map((l) => (l.keyId.toHexString())) },
+                  }
                 },
                 {
                   $project: { _id: 0 }
                 }
               ])
-                .then((keys) => {
+                .then((skeletonKeyIds) => {
+                  console.log("#### skeletonKeyIds ####")
+                  console.log(skeletonKeyIds);
                   Label.aggregate([
+                    { $match: { _id: { $exists: true } } },
                     {
-                      $match: { "metadata.keyId": { $in: keys } }
+                      $project: { _id: 0, "labelId": { $toString: "$_id" }, "keyId": { $toString: "$metadata.keyId" } }
                     },
                     {
-                      $project: { "labelId": "$_id" }
-                    }
+                      $match: { "keyId": { $in: skeletonKeyIds.map((k) => (k.keyId)) } }
+                    },
                   ])
                     .then((labelIds) => {
+                      console.log("#### labelIds ####")
+                      console.log(labelIds);
                       Table.aggregate([
                         {
                           $match: { _id: { $exists: true } }
                         },
                         {
                           $project: {
-                            "metadata.labels": {
+                            "tableId": { $toString: "$_id" },
+                            "stringLabels": {
                               $map: {
                                 input: "$metadata.labels",
                                 as: "label",
@@ -171,21 +209,27 @@ module.exports.fill = (req, res) => {
                         },
                         {
                           $project: {
-                            "metadata.labels": {
+                            _id: 0,
+                            "tableId": 1,
+                            "labels": {
                               $filter: {
-                                input: "$metadata.labels",
+                                input: "$stringLabels",
                                 as: "label",
                                 cond: {
-                                  $in: ["$$label", labelIds],
+                                  $in: ["$$label", labelIds.map((l) => (l.labelId))],
                                 },
                               },
                             },
                           },
                         },
+                        {$match: {"tableId": {$in: req.body.sourceTableIds}}}
                       ])
                         .then((smartTableValidTables) => {
+                          console.log("#### smartTableValidTables ####")
+                          console.log(smartTableValidTables);
                           if (smartTableValidTables.length === req.body.sourceTableIds.length) {
-                            smartTable.updateOne({ $set: { "metadata.sourceTableIds": req.body.sourceTableIds } });
+                            const sourceTableIds = req.body.sourceTableIds.filter((id) => !(smartTable.metadata.sourceTableIds.includes(id)))
+                            smartTable.metadata.sourceTableIds = [...(smartTable.metadata.sourceTableIds)].concat(sourceTableIds);
                             smartTable
                               .save()
                               .then((saved) => {
@@ -196,6 +240,8 @@ module.exports.fill = (req, res) => {
                                 console.error(`Error: ${err.message}`);
                                 return res.send(`Error: ${err.message}`);
                               })
+                          } else {
+                            res.status(400).send("At leat one of sourceTables is not valid");
                           }
                         })
                         .catch((err) => {

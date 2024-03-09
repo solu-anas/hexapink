@@ -124,7 +124,7 @@ module.exports.link = (req, res) => {
     });
 };
 
-module.exports.insert = (req, res) => {
+module.exports.convert = (req, res) => {
   if (!(req.body.tableId)) {
     return res.status(400).send("Please provide a tableId");
   }
@@ -145,7 +145,7 @@ module.exports.insert = (req, res) => {
           return res.status(500).send(`Error inserting table`);
         }
         Table.findOneAndUpdate(table._id, {
-          "metadata.status": "insert-complete",
+          "metadata.status": "convert-complete",
         }).then((updatedTable) => {
           console.log("Pipeline succeeded.");
         });
@@ -285,7 +285,7 @@ module.exports.read = (req, res) => {
           $eq: ["$_id", { $toObjectId: req.body.tableId }]
         },
         "metadata.status": {
-          $in: ["insert-complete", "active"],
+          $in: ["convert-complete", "active"],
         },
       },
     }

@@ -12,9 +12,9 @@ const tableSchema = new Schema({
       enum: [
         "created",
         "upload-in-progress",
-        "insert-in-progress",
+        "convert-in-progress",
         "upload-complete",
-        "insert-complete",
+        "convert-complete",
         "active",
       ],
       default: "created",
