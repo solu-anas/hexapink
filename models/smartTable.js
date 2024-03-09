@@ -8,11 +8,11 @@ const smartTableSchema = new Schema({
     metadata: {
         // keys: [Types.ObjectId],
         skeletonTableId: {
-            type: Types.ObjectId,
+            type: String,
             required: true
         },
         sourceTableIds: {
-            type: [Types.ObjectId],
+            type: [String],
             default: null
         },
         collections: [Types.ObjectId]

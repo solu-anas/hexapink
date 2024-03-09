@@ -222,7 +222,7 @@ module.exports.fill = (req, res) => {
                             },
                           },
                         },
-                        {$match: {"tableId": {$in: req.body.sourceTableIds}}}
+                        { $match: { "tableId": { $in: req.body.sourceTableIds } } }
                       ])
                         .then((smartTableValidTables) => {
                           console.log("#### smartTableValidTables ####")
@@ -372,13 +372,16 @@ module.exports.read = (req, res) => {
               ]).then((validSourceTables) => {
                 // return res.status(200).json(validSourceTables);
                 // #########################
-                // read Recoreds starts here
+                // read Records starts here
                 // #########################
                 const validSourceTableIds = validSourceTables.map((t) => (t._id));
+                let outputTabelIds = smartTable.metadata.sourceTableIds;
+                outputTabelIds.push(smartTable.metadata.skeletonTableId);
                 Record.aggregate([
                   { $match: { _id: { $exists: true } } },
                   { $project: { "content": 1, "tableId": { $toString: "$metadata.tableId" } } },
-                  { $match: { "tableId": { $in: validSourceTableIds } } },
+                  // { $match: { "tableId": { $in: validSourceTableIds } } },
+                  { $match: { "tableId": { $in: outputTabelIds } } },
                   { $skip: req.body.skip || 0 },
                   { $limit: req.body.limit || 10 },
                 ]).then((records) => {
@@ -401,12 +404,11 @@ module.exports.read = (req, res) => {
                       }).filter((r) => r);
                     return newRecord;
                   })
-                  return res.status(200).json(smartRecords.map((sr) => {
-                    return sr.reduce((result, labelObject) => {
-                      console.log(labelObject);
-                      return { ...result, [labelObject.keyName]: labelObject.value }
-                    }, {})
-                  }));
+                  return res.status(200).json(
+                    smartRecords.map((sr) => (
+                      sr.reduce((result, labelObject) => ({ ...result, [labelObject.keyName]: labelObject.value }), {})
+                    ))
+                  )
                 }).catch((err) => {
                   console.log(err)
                   return res.status(500).send('Error finding valid records');
