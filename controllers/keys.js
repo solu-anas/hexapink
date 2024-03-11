@@ -52,7 +52,7 @@ module.exports.trash = (req, res) => {
     .then((key) => {
       // find all the labels that are linked to the key you want to put in trash
       Label
-        .updateMany({ "metadata.keyId": key._id }, { $unset: {"metadata.keyId": { $exists: true }} })
+        .updateMany({ "metadata.keyId": key._id }, { $unset: { "metadata.keyId": { $exists: true } } })
         .then(({ acknowledged }) => {
           if (!acknowledged) {
             return res.status(500).send("You fucked up :/");

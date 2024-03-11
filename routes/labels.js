@@ -1,6 +1,7 @@
 const router = require('express').Router();
-const { rename } = require('../controllers/labels');
+const { rename, link } = require('../controllers/labels');
 
 router.post('/rename', rename);
+router.post('/link', link);
 
 module.exports = router;
