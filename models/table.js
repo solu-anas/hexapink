@@ -16,6 +16,7 @@ const tableSchema = new Schema({
         "upload-complete",
         "convert-complete",
         "active",
+        "in-trash"
       ],
       default: "created",
     },

@@ -51,7 +51,7 @@ module.exports.read = (req, res) => {
       const newRecord = recordEntries
         .map((recordEntry) => {
           const validLabel = validSourceTable.validLabels.find((l) => {
-            return (l.labelName === recordEntry[0])
+            return (l.labelId === recordEntry[0])
           });
           if (!validLabel) {
             return null;
@@ -200,32 +200,42 @@ module.exports.attach = (req, res) => {
     return res.status(400).send("Please provide sourceTableIds");
   }
 
+  // Check validity
   const validSourceTableIds = validSourceTables.map((t) => t._id);
-
-  if (req.body.sourceTableIds.every((t) => validSourceTableIds.includes(t))) {
-    const sourceTableIds = req.body.sourceTableIds.filter((id) => {
-      if (smartTable.metadata.sourceTableIds.includes(id)) {
-        return false;
-      }
-      if (id === smartTable.metadata.skeletonTableId) {
-        return false;
-      }
-      return true;
-    })
-    smartTable.metadata.sourceTableIds = [...(smartTable.metadata.sourceTableIds)].concat(sourceTableIds);
-    smartTable
-      .save()
-      .then((saved) => {
-        console.log(saved);
-        return res.json({ updated: saved });
-      })
-      .catch((err) => {
-        console.error(`Error: ${err.message}`);
-        return res.send(`Error: ${err.message}`);
-      })
-  } else {
-    res.status(400).send("At leat one of sourceTables is not valid");
+  if (!(req.body.sourceTableIds.every((t) => validSourceTableIds.includes(t)))) {
+    return res.status(400).send("At least one of sourceTables is not valid");
   }
+
+  // Filter Out Duplicate Source Tables and Duplicate Skeleton Table
+  let isThereDuplicates = false;  
+  const sourceTableIds = req.body.sourceTableIds.filter((id) => {
+    if (smartTable.metadata.sourceTableIds.includes(id)) {
+      isThereDuplicates = true;
+      return false;
+    }
+    if (id === smartTable.metadata.skeletonTableId) {
+      isThereDuplicates = true;
+      return false;
+    }
+    return true;
+  });
+
+  if (isThereDuplicates) {
+    return res.status(400).send('There is at least one duplicate Table.');
+  }
+
+  // attach new source tables to old source tables
+  smartTable.metadata.sourceTableIds = [...(smartTable.metadata.sourceTableIds)].concat(sourceTableIds);
+  smartTable
+    .save()
+    .then((saved) => {
+      console.log(saved);
+      return res.json({ updated: saved });
+    })
+    .catch((err) => {
+      console.error(`Error: ${err.message}`);
+      return res.send(`Error: ${err.message}`);
+    })
 };
 
 module.exports.detach = (req, res) => {
@@ -400,4 +410,42 @@ module.exports.getValidSourceTables = (req, res) => {
     return res.status(500).send("Error getting validSourceTables from res.locals")
   }
   return res.send(validSourceTables);
+};
+
+module.exports.rename = (req, res) => {
+  SmartTable.findByIdAndUpdate(req.body.smartTableId, { "content.name": req.body.newSmartTableName })
+    .then((smartTable) => {
+      smartTable
+        .save()
+        .then((savedSmartTable) => {
+          return res.send('Smart Table Name Updated Successfully.')
+        })
+        .catch((err) => {
+          console.error('Error: ', err.message);
+          return res.status(500).send("Something Went Wrong.");
+        });
+    })
+    .catch((err) => {
+      console.error('Error: ', err.message);
+      return res.status(500).send('Something Went Wrong.')
+    });
+};
+
+module.exports.trash = (req, res) => {
+  SmartTable.findByIdAndUpdate(req.body.smartTableId, { "metadata.status": "in-trash" })
+    .then((smartTable) => {
+      smartTable
+        .save()
+        .then((savedSmartTable) => {
+          return res.send('Smart Table Put in Trash Successfully.');
+        })
+        .catch((err) => {
+          console.error('Error: ', err.message);
+          return res.status(500).send('Something Went Wrong.')
+        })
+    })
+    .catch((err) => {
+      console.error('Error: ', err.message);
+      return res.status(500).send('Something Went Wrong.');
+    });
 };

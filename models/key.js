@@ -9,6 +9,11 @@ const keySchema = new Schema({
       type: String,
       default: "all",
     },
+    status: {
+      type: String, 
+      enum: ["in-trash", "active"],
+      default: "active"
+    }
   },
 });
 

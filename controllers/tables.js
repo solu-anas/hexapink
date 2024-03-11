@@ -136,7 +136,18 @@ module.exports.convert = (req, res) => {
       // pipeline stages
       const reader = fs.createReadStream(join(__dirname, `../uploads/${table.metadata.uuid}.csv`));
       const parser = csv();
-      const inserter = insertTransform(table._id);
+
+      const inserter = insertTransform(table, ({ type, message }) => {
+        switch (type) {
+          case "error":
+            return res.status(500).send(message);
+          case "end":
+            return res.json(message);
+
+          default:
+            break;
+        }
+      });
 
       // run pipeline
       pipeline(reader, parser, inserter, (err) => {
@@ -150,50 +161,6 @@ module.exports.convert = (req, res) => {
           console.log("Pipeline succeeded.");
         });
       });
-
-      parser.once("data", (chunk) => {
-        let labels = Object.keys(chunk);
-        let labelIndex = 0;
-
-        const pushLabel = (label, table, cb) => {
-          const newLabel = new Label({
-            content: {
-              name: label,
-            },
-            metadata: {
-              type: "undefined",
-            },
-          });
-          newLabel.save()
-            .then((savedLabel) => {
-              table.metadata.labels.push(savedLabel._id);
-              table
-                .save()
-                .then(cb)
-                .catch((err) => {
-                  console.error("Error: ", err.message);
-                  return res.status(500).send("Error updating table labels");
-                })
-                ;
-            })
-
-            .catch((err) => {
-              console.error("Error: ", err.message);
-              return res.status(500).send('Error creating labels');
-            });
-        }
-
-        const pushLabelCb = (table) => {
-          if (labelIndex < labels.length - 1)
-            pushLabel(labels[++labelIndex], table, pushLabelCb);
-          else {
-            return res.json({ tableId: table._id });
-          }
-        }
-        pushLabel(labels[labelIndex], table, pushLabelCb);
-
-      });
-
     })
     .catch((err) => {
       console.error('Error: ', err.message);
@@ -230,50 +197,52 @@ module.exports.upload = (req, res) => {
 
     const table = new Table({
       content: {
-        title: originalFilename,
+        tableName: req.body.tableName || originalFilename,
       },
       metadata: {
         originalFilename: originalFilename,
       },
     });
 
-    table.save().then((savedTable) => {
-      const { uuid } = savedTable.metadata;
-      // Check and Create /uploads directory
-      checkAndCreateDir("./uploads", () => {
-        // Get the file details
+    table
+      .save()
+      .then((savedTable) => {
+        const { uuid } = savedTable.metadata;
+        // Check and Create /uploads directory
+        checkAndCreateDir("./uploads", () => {
+          // Get the file details
 
-        let readPath = file.filepath;
-        let writePath = "./uploads/" + uuid + ".csv";
+          const readPath = file.filepath;
+          const writePath = "./uploads/" + uuid + ".csv";
 
-        // Upload the file
-        upload(readPath, writePath, totalSize, (response) => {
-          switch (response.status) {
-            case "start":
-              Table.findOneAndUpdate(savedTable._id, {
-                "metadata.status": "upload-in-progress",
-              });
-              break;
-            case "finish":
-              process.stdout.cursorTo(0);
-              process.stdout.clearLine();
-              process.stdout.write("File Uploaded Successfully");
-              Table.findOneAndUpdate(savedTable._id, {
-                "metadata.status": "upload-complete",
-              }).then((updatedTable) => {
-                res.json({ tableId: updatedTable._id });
-              });
-              break;
-            case "error":
-              console.error("\nError: ", response.error);
-              res.send("Error Writing File");
-              break;
-            default:
-              break;
-          }
+          // Upload the file
+          upload(readPath, writePath, totalSize, (response) => {
+            switch (response.status) {
+              case "start":
+                Table.findOneAndUpdate(savedTable._id, {
+                  "metadata.status": "upload-in-progress",
+                });
+                break;
+              case "finish":
+                process.stdout.cursorTo(0);
+                process.stdout.clearLine();
+                process.stdout.write("File Uploaded Successfully");
+                Table.findOneAndUpdate(savedTable._id, {
+                  "metadata.status": "upload-complete",
+                }).then((updatedTable) => {
+                  res.json({ tableId: updatedTable._id });
+                });
+                break;
+              case "error":
+                console.error("\nError: ", response.error);
+                res.send("Error Writing File");
+                break;
+              default:
+                break;
+            }
+          });
         });
       });
-    });
   });
 };
 
@@ -305,7 +274,8 @@ module.exports.read = (req, res) => {
           {
             $project: { content: 1, tableId: { $toString: "$metadata.tableId" } },
           },
-          { $limit: req.body.limit || 10 }
+          { $skip: req.body.skip || 0 },
+          { $limit: req.body.limit || 10 },
         ])
         .then((records) => {
           console.log(records);
@@ -360,5 +330,43 @@ module.exports.getSchema = (req, res) => {
     .catch((err) => {
       console.error("Error: ", err.message);
       return res.status(500).send("Error finding table");
+    });
+};
+
+module.exports.rename = (req, res) => {
+  Table.findByIdAndUpdate(req.body.tableId, { "content.tableName": req.body.newTableName })
+    .then((table) => {
+      table
+        .save()
+        .then((savedTable) => {
+          return res.send('Table Name Updated Successfully.')
+        })
+        .catch((err) => {
+          console.error('Error: ', err.message);
+          return res.status(500).send("Something Went Wrong.");
+        });
+    })
+    .catch((err) => {
+      console.error('Error: ', err.message);
+      return res.status(500).send('Something Went Wrong.')
+    });
+};
+
+module.exports.trash = (req, res) => {
+  Table.findByIdAndUpdate(req.body.tableId, { "metadata.status": "in-trash" })
+    .then((table) => {
+      table
+        .save()
+        .then((savedTable) => {
+          return res.send('Table is in Trash.')
+        })
+        .catch((err) => {
+          console.error('Error: ', err.message);
+          return res.status(500).send("Something Went Wrong.");
+        });
+    })
+    .catch((err) => {
+      console.error('Error: ', err.message);
+      return res.status(500).send('Something Went Wrong.')
     });
 };
