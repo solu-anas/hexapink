@@ -1,14 +1,3 @@
-/*{
-// enter name for newly-created smartTable
-  // list all existing keys
-  // select keys that define the structure of smartTable
-  // Enter names for labels
-  // list all tables with labels belong to the set of chosen keys
-  // select from where to fill the smartTable
-  //   
-  // render the smart Table
-}*/
-
 const { SmartTable } = require("../models/SmartTable");
 const { Table } = require("../models/Table");
 const { Label } = require("../models/Label");
@@ -247,7 +236,7 @@ module.exports.detach = (req, res) => {
     return res.status(400).send("Please provide a sourceTableIds");
   }
   SmartTable.findById(req.body.smartTableId)
-  .then((smartTable) => {
+    .then((smartTable) => {
       if (!(smartTable)) {
         return res.status(404).send("SmartTable not found");
       }
@@ -256,13 +245,13 @@ module.exports.detach = (req, res) => {
       }
       smartTable.metadata.sourceTableIds = smartTable.metadata.sourceTableIds.filter((id) => !(req.body.sourceTableIds.includes(id)));
       smartTable.save()
-      .then((savedSmartTable) => {
-        return res.json(savedSmartTable);
-      })
-      .catch((err) => {
-        console.log(err)
-        return res.status(500).send('Error updating SmartTable');
-      })
+        .then((savedSmartTable) => {
+          return res.json(savedSmartTable);
+        })
+        .catch((err) => {
+          console.log(err)
+          return res.status(500).send('Error updating SmartTable');
+        })
     })
     .catch((err) => {
       console.log(err)
@@ -403,4 +392,12 @@ module.exports.getSmartTableData = (req, res, next) => {
       console.error(`Error: ${err.message}`);
       return res.status(404).send('Smart Table Not Found');
     })
+};
+
+module.exports.getValidSourceTables = (req, res) => {
+  const { validSourceTables } = res.locals.smartTableData;
+  if (!validSourceTables) {
+    return res.status(500).send("Error getting validSourceTables from res.locals")
+  }
+  return res.send(validSourceTables);
 };
