@@ -319,17 +319,18 @@ module.exports.read = (req, res) => {
 };
 
 module.exports.list = (req, res) => {
-  if (!(req.body.statusList)) {
+  console.log(req.query);
+  if (!(req.query.statusList)) {
     return res.status(400).send("Please provide a statusList");
   }
   const pipeline = [
     {
       $match: {
         _id: { $exists: true },
-        "metadata.status": { $in: req.body.statusList },
+        "metadata.status": { $in: JSON.parse(req.query.statusList) },
       },
     },
-    { $limit: req.body.limit || 10 },
+    { $limit: parseInt(req.query.limit) || 10 },
   ];
 
   Table.aggregate(pipeline)
