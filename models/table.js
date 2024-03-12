@@ -3,8 +3,10 @@ const { UUID } = require("mongodb");
 
 const tableSchema = new Schema({
   content: {
-    type: Object,
-    required: true,
+    tableName: {
+      type: String,
+      required: true
+    }
   },
   metadata: {
     status: {
@@ -15,7 +17,7 @@ const tableSchema = new Schema({
         "convert-in-progress",
         "upload-complete",
         "convert-complete",
-        "active",
+        // "active",
         "in-trash"
       ],
       default: "created",

@@ -1,10 +1,8 @@
 const { Table } = require("../models/Table");
 const { Label } = require("../models/Label");
 const { Record } = require("../models/Record");
-const { Key } = require("../models/Key");
 const { checkAndCreateDir, upload } = require("../utils/fs");
 const { insertTransform } = require("../utils/db");
-const { updateKey } = require("./keys");
 const { pipeline } = require("stream");
 const { join } = require("path");
 const csv = require("csv-parser");
@@ -17,8 +15,14 @@ module.exports.convert = (req, res) => {
   }
   Table.findById(req.body.tableId)
     .then((table) => {
-      if (!table) return res.status(404).send("Table Not Found");
-      else if (table.metadata.status !== "upload-complete") return res.status(400).send("Bad Request");
+      if (!table) {
+        return res.status(404).send("Table Not Found");
+      }
+
+      else if (table.metadata.status !== "upload-complete") {
+        console.log(table.metadata.status);
+        return res.status(400).send("Bad Request");
+      }
 
       // pipeline stages
       const reader = fs.createReadStream(join(__dirname, `../uploads/${table.metadata.uuid}.csv`));
@@ -78,13 +82,20 @@ module.exports.upload = (req, res) => {
       console.log("\nerror uploading file", err);
       return;
     }
+
+    if (!Object.keys(files).length) {
+      return res.status(400).send('Please attach a .csv file to the FormData.');
+    }
+
+    if (files.file.length !== 1) {
+      return res.status(400).send('The Uploader can accept only One .csv file Per Upload.');
+    }
+
     const file = files.file[0];
-
     const originalFilename = file.originalFilename;
-
     const table = new Table({
       content: {
-        tableName: req.body.tableName || originalFilename,
+        tableName: fields.tableName[0] || originalFilename,
       },
       metadata: {
         originalFilename: originalFilename,
@@ -134,11 +145,15 @@ module.exports.upload = (req, res) => {
 };
 
 module.exports.read = (req, res) => {
+  if (!(req.query.tableId)) {
+    return res.status(500).send("Please provide a tableId");
+  }
+  const tableId = req.query.tableId;
   const tablePipeline = [
     {
       $match: {
         $expr: {
-          $eq: ["$_id", { $toObjectId: req.body.tableId }]
+          $eq: ["$_id", { $toObjectId: tableId }]
         },
         "metadata.status": {
           $in: ["convert-complete", "active"],
@@ -176,10 +191,14 @@ module.exports.read = (req, res) => {
 };
 
 module.exports.list = (req, res) => {
-  console.log(req.query);
   if (!(req.query.statusList)) {
     return res.status(400).send("Please provide a statusList");
   }
+
+  if (req.query.statusList.includes("in-trash")) {
+    return res.status(400).send('Cannot List Tables that have an "in-trash" status');
+  }
+
   const pipeline = [
     {
       $match: {
@@ -201,10 +220,11 @@ module.exports.list = (req, res) => {
 };
 
 module.exports.getSchema = (req, res) => {
-  if (!(req.body.tableId)) {
+  if (!(req.query.tableId)) {
     return res.status(500).send("Please provide a tableId");
   }
-  Table.findById(req.body.tableId)
+  const tableId = req.query.tableId;
+  Table.findById(tableId)
     .then((table) => {
       Label.aggregate([{ $match: { _id: { $in: table.metadata.labels } } }])
         .then((labels) => {
@@ -222,6 +242,14 @@ module.exports.getSchema = (req, res) => {
 };
 
 module.exports.rename = (req, res) => {
+  if (!req.body.tableId) {
+    return res.status(400).send('Please Provide tableId.');
+  }
+
+  if (!req.body.newTableName) {
+    return res.status(400).send('Please Provide newTableName.');
+  }
+
   Table.findByIdAndUpdate(req.body.tableId, { "content.tableName": req.body.newTableName })
     .then((table) => {
       table
@@ -241,20 +269,79 @@ module.exports.rename = (req, res) => {
 };
 
 module.exports.trash = (req, res) => {
+  if (!req.body.tableId) {
+    return res.status(400).send('Please Provide tableId');
+  }
+
   Table.findByIdAndUpdate(req.body.tableId, { "metadata.status": "in-trash" })
     .then((table) => {
-      table
-        .save()
-        .then((savedTable) => {
-          return res.send('Table is in Trash.')
-        })
-        .catch((err) => {
-          console.error('Error: ', err.message);
-          return res.status(500).send("Something Went Wrong.");
-        });
+
+      if (!table) {
+        return res.status(404).send('Table Not Found.');
+      }
+      
+      if (table.metadata.status === "convert-complete") {
+        Record.updateMany({ "metadata.tableId": table._id }, { "metadata.status": "in-trash" })
+          .then(({ acknowledged }) => {
+            if (!acknowledged) {
+              return res.status(500).send('Something Went Wrong.');
+            }
+            return res.send('Table and its Records are Put In Trash successfully.')
+          })
+          .catch((err) => {
+            console.error('Error: ', err.message);
+            return res.status(500).send('Something Went Wrong.');
+          })
+      }
+      else return res.status(400).send('Cannot Put in trash Tables that are not converted into Docs.');
     })
     .catch((err) => {
       console.error('Error: ', err.message);
       return res.status(500).send('Something Went Wrong.')
     });
+};
+
+module.exports.restoreFromTrash = (req, res) => {
+  if (!req.body.tableList) {
+    return res.status(400).send('Please Provide tableList');
+  }
+
+  let finishedCheck = req.body.tableList.length;
+  req.body.tableList.forEach((id) => {
+    // check if the provided ids are valid
+    Table.findById(id)
+      .then((table) => {
+        if (!table) {
+          return res.status(400).send('At least one Id in tableList is not valid.');
+        }
+
+        if (table.metadata.status !== "in-trash") {
+          return res.status(400).send("You can't restore something that is not in trash.")
+        }
+
+        if (table.metadata.status === "in-trash") {
+          Record.updateMany({ "metadata.tableId": table._id }, { "metadata.status": "active" })
+            .then(({ acknowledged }) => {
+              if (!acknowledged) {
+                return res.status(500).send('Something Went Wrong.');
+              }
+              table.metadata.status = "convert-complete"
+              table
+                .save()
+                .then((savedTable) => {
+                  if (!finishedCheck) {
+                    finishedCheck--;
+                  }
+                  return res.send('Restored Tables and their Records Successfully.')
+                })
+            })
+            .catch((err) => {
+              console.error('Error: ', err.message);
+              return res.status(500).send('Something Went Wrong.');
+            })
+
+        }
+      })
+
+  });
 };

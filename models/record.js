@@ -1,4 +1,4 @@
-const { Schema, model } = require('mongoose');
+const { Schema, model, Types } = require('mongoose');
 
 const recordSchema = new Schema({
     content: {
@@ -6,8 +6,16 @@ const recordSchema = new Schema({
         required: true
     },
     metadata: {
-        type: Object,
-        required: true
+        status: {
+            type: String,
+            enum: ["in-trash", "active"],
+            default: "active",
+            required: true
+        },
+        tableId: {
+            type: Types.ObjectId,
+            required: true
+        }
     }
 });
 

@@ -5,13 +5,21 @@ const { Key } = require("../models/Key");
 const { Record } = require("../models/Record");
 
 module.exports.list = (req, res) => {
-  SmartTable.aggregate([{ $limit: req.body.limit || 10 }])
+  if (!req.query.statusList) {
+    return res.status(400).send('Please Provide statusList.');
+  }
+
+  if (req.query.statusList.includes("in-trash")) {
+    return res.status(400).send('Cannot List Tables that have an "in-trash" status.');
+  }
+
+  SmartTable.aggregate([{ $limit: parseInt(req.query.limit) || 10 }])
     .then((smartTables) => {
-      res.json(smartTables)
+      return res.json(smartTables)
     })
     .catch((err) => {
       console.log(err);
-      res.status(500).send("Error finding smartTables");
+      return res.status(500).send("Error finding smartTables");
     })
 }
 
@@ -207,7 +215,7 @@ module.exports.attach = (req, res) => {
   }
 
   // Filter Out Duplicate Source Tables and Duplicate Skeleton Table
-  let isThereDuplicates = false;  
+  let isThereDuplicates = false;
   const sourceTableIds = req.body.sourceTableIds.filter((id) => {
     if (smartTable.metadata.sourceTableIds.includes(id)) {
       isThereDuplicates = true;
@@ -226,6 +234,11 @@ module.exports.attach = (req, res) => {
 
   // attach new source tables to old source tables
   smartTable.metadata.sourceTableIds = [...(smartTable.metadata.sourceTableIds)].concat(sourceTableIds);
+
+  if (smartTable.metadata.status === "empty") {
+    smartTable.metadata.status = "filled";
+  }
+
   smartTable
     .save()
     .then((saved) => {
@@ -254,6 +267,11 @@ module.exports.detach = (req, res) => {
         return res.status(400).send("At least one sourceTableId is invalid");
       }
       smartTable.metadata.sourceTableIds = smartTable.metadata.sourceTableIds.filter((id) => !(req.body.sourceTableIds.includes(id)));
+
+      if (!smartTable.metadata.sourceTableIds.length) {
+        smartTable.metadata.status = "empty";
+      }
+
       smartTable.save()
         .then((savedSmartTable) => {
           return res.json(savedSmartTable);
@@ -273,22 +291,27 @@ module.exports.getSmartTableData = (req, res, next) => {
   if (!(req.body.smartTableId)) {
     return res.status(400).send("Please provide a smartTableId")
   }
+  
   SmartTable.findById(req.body.smartTableId)
     .then((smartTable) => {
-      console.log("#### smartTable ####");
-      console.log(smartTable);
+      if (!smartTable) {
+        return res.status(404).send('SmartTable with the specified Id Not Found.');  
+      }
+
       if (!smartTable.metadata.skeletonTableId) {
-        console.error(`Error: ${err.message}`);
-        return res.status(400).send('no skeleton table');
+        return res.status(400).send('skeletonTable field is missing.');
       }
-      if (!smartTable.metadata.sourceTableIds) {
-        console.error(`Error: ${err.message}`);
-        return res.status(400).send('no source tables');
+      
+      if (!smartTable.metadata.sourceTableIds.length) {
+        return res.status(400).send('SmartTable is Empty: No sourceTables attached.');
       }
+      
       Table.findById(smartTable.metadata.skeletonTableId)
         .then((skeletonTable) => {
-          console.log("#### skeletonTable ####");
-          console.log(skeletonTable);
+          if (!skeletonTable) {
+            return res.status(404).send('skeletonTable is not Found.');
+          }
+          
           Label.aggregate([
             { $match: { _id: { $exists: true } } },
             {
@@ -400,7 +423,7 @@ module.exports.getSmartTableData = (req, res, next) => {
     })
     .catch((err) => {
       console.error(`Error: ${err.message}`);
-      return res.status(404).send('Smart Table Not Found');
+      return res.status(404).send("Error looking Up SmartTable.");
     })
 };
 
@@ -413,8 +436,19 @@ module.exports.getValidSourceTables = (req, res) => {
 };
 
 module.exports.rename = (req, res) => {
+  if (!req.body.smartTableId) {
+    return res.status(400).send('Please Provide smartTableId.');
+  }
+
+  if (!req.body.newSmartTableName) {
+    return res.status(400).send('Please Provide newSmartTableName.');
+  }
+
   SmartTable.findByIdAndUpdate(req.body.smartTableId, { "content.name": req.body.newSmartTableName })
     .then((smartTable) => {
+      if (!smartTable) {
+        return res.status(404).send('SmartTable Not Found.');
+      }
       smartTable
         .save()
         .then((savedSmartTable) => {
@@ -432,8 +466,15 @@ module.exports.rename = (req, res) => {
 };
 
 module.exports.trash = (req, res) => {
+  if (!req.body.smartTableId) {
+    return res.status(400).send('Please Provide smartTableId.');
+  }
+
   SmartTable.findByIdAndUpdate(req.body.smartTableId, { "metadata.status": "in-trash" })
     .then((smartTable) => {
+      if (!smartTable) {
+        return res.send(404).send("Smart Table Not Found.")
+      }
       smartTable
         .save()
         .then((savedSmartTable) => {
