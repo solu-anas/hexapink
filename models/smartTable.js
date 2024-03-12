@@ -6,7 +6,11 @@ const smartTableSchema = new Schema({
         required: true
     },
     metadata: {
-        // keys: [Types.ObjectId],
+        status : {
+            type: String,
+            enum: ["empty", "filled", "in-trash"],
+            default: "empty"
+        },
         skeletonTableId: {
             type: String,
             required: true

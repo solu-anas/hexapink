@@ -11,119 +11,6 @@ const csv = require("csv-parser");
 const formidable = require("formidable").formidable;
 const fs = require("fs");
 
-module.exports.link = (req, res) => {
-  if (!(req.body.labelId)) {
-    return res.status(400).send("Please provide a labelId");
-  }
-  // find label
-  Label.findById(req.body.labelId)
-    .then((label) => {
-      if (!label) {
-        return res.status(404).send('there is no label with the provided id')
-      }
-      // check if req.body.oldKeyId is set
-      if (req.body.oldKeyId) {
-        // check if the provided id is valid
-        Key.findById(req.body.oldKeyId)
-          .then((key) => {
-            // check if key._id is unique amongst sibling labels (labels of the same table)
-            if (!key) {
-              return res.status(404).send('there is no key with the provided id')
-            }
-            if (!req.body.tableId) {
-              return res.status(400).send('Please provide a tableId.')
-            }
-            Table.findById(req.body.tableId)
-              .then((table) => {
-                if (!table) {
-                  return res.status(404).send("table not found");
-                }
-                const foundLabel = table.metadata.labels.find((l) =>
-                  label._id.equals(l)
-                );
-                if (!foundLabel) {
-                  return res.status(404).send("label not found in table");
-                }
-                Label.aggregate([
-                  { $match: { "metadata.keyId": key._id } },
-                  { $project: { newId: { $toString: "$_id" } } },
-                  {
-                    $match: {
-                      newId: {
-                        $in: table.metadata.labels.map((l) =>
-                          l.toHexString()
-                        ),
-                      },
-                    },
-                  },
-                ])
-                  .then((matchingLabels) => {
-                    // then reassign newKeyId
-                    if (!matchingLabels.length) {
-                      updateKey(label, key._id, updateCallBack);
-                    } else {
-                      res
-                        .status(400)
-                        .send("can't link sibling labels to the same key");
-                    }
-                  })
-                  .catch((err) => {
-                    console.log(err.message);
-                    res.status(500).send("error checking sibling labels");
-                  });
-              })
-              .catch((err) => {
-                console.log(err.message);
-                res.status(500).send("Error finding table");
-              });
-          })
-          .catch((err) => {
-            console.log(err.message);
-            res.status(500).send("Error finding key");
-          });
-      }
-      // check if req.body.newKeyName is set
-      else if (req.body.newKeyName) {
-        // create new key and get its id
-        // then reassign newKeyId
-        const newKey = new Key({
-          content: {
-            keyName: req.body.newKeyName,
-          },
-        });
-        newKey
-          .save()
-          .then((key) => {
-            updateKey(label, key._id, updateCallBack);
-          })
-          .catch((err) => {
-            console.log(err.message);
-            res.status(500).send("Error saving new key");
-          });
-      } else {
-        res.status(400).send("Please provide a newKeyName or an oldKeyId");
-      }
-      function updateCallBack({ type, message }) {
-        switch (type) {
-          case "error":
-            res.status(400).send(message);
-            break;
-          case "success":
-            res.status(200).send(message);
-            break;
-
-          default:
-            res.status(500).send(message);
-            break;
-        }
-      }
-    })
-    .catch((err) => {
-      console.log(err.message);
-      res.status(500).send("Error finding label");
-    });
-};
-
 module.exports.convert = (req, res) => {
   if (!(req.body.tableId)) {
     return res.status(400).send("Please provide a tableId");
@@ -136,7 +23,18 @@ module.exports.convert = (req, res) => {
       // pipeline stages
       const reader = fs.createReadStream(join(__dirname, `../uploads/${table.metadata.uuid}.csv`));
       const parser = csv();
-      const inserter = insertTransform(table._id);
+
+      const inserter = insertTransform(table, ({ type, message }) => {
+        switch (type) {
+          case "error":
+            return res.status(500).send(message);
+          case "end":
+            return res.json(message);
+
+          default:
+            break;
+        }
+      });
 
       // run pipeline
       pipeline(reader, parser, inserter, (err) => {
@@ -150,50 +48,6 @@ module.exports.convert = (req, res) => {
           console.log("Pipeline succeeded.");
         });
       });
-
-      parser.once("data", (chunk) => {
-        let labels = Object.keys(chunk);
-        let labelIndex = 0;
-
-        const pushLabel = (label, table, cb) => {
-          const newLabel = new Label({
-            content: {
-              name: label,
-            },
-            metadata: {
-              type: "undefined",
-            },
-          });
-          newLabel.save()
-            .then((savedLabel) => {
-              table.metadata.labels.push(savedLabel._id);
-              table
-                .save()
-                .then(cb)
-                .catch((err) => {
-                  console.error("Error: ", err.message);
-                  return res.status(500).send("Error updating table labels");
-                })
-                ;
-            })
-
-            .catch((err) => {
-              console.error("Error: ", err.message);
-              return res.status(500).send('Error creating labels');
-            });
-        }
-
-        const pushLabelCb = (table) => {
-          if (labelIndex < labels.length - 1)
-            pushLabel(labels[++labelIndex], table, pushLabelCb);
-          else {
-            return res.json({ tableId: table._id });
-          }
-        }
-        pushLabel(labels[labelIndex], table, pushLabelCb);
-
-      });
-
     })
     .catch((err) => {
       console.error('Error: ', err.message);
@@ -230,50 +84,52 @@ module.exports.upload = (req, res) => {
 
     const table = new Table({
       content: {
-        title: originalFilename,
+        tableName: req.body.tableName || originalFilename,
       },
       metadata: {
         originalFilename: originalFilename,
       },
     });
 
-    table.save().then((savedTable) => {
-      const { uuid } = savedTable.metadata;
-      // Check and Create /uploads directory
-      checkAndCreateDir("./uploads", () => {
-        // Get the file details
+    table
+      .save()
+      .then((savedTable) => {
+        const { uuid } = savedTable.metadata;
+        // Check and Create /uploads directory
+        checkAndCreateDir("./uploads", () => {
+          // Get the file details
 
-        let readPath = file.filepath;
-        let writePath = "./uploads/" + uuid + ".csv";
+          const readPath = file.filepath;
+          const writePath = "./uploads/" + uuid + ".csv";
 
-        // Upload the file
-        upload(readPath, writePath, totalSize, (response) => {
-          switch (response.status) {
-            case "start":
-              Table.findOneAndUpdate(savedTable._id, {
-                "metadata.status": "upload-in-progress",
-              });
-              break;
-            case "finish":
-              process.stdout.cursorTo(0);
-              process.stdout.clearLine();
-              process.stdout.write("File Uploaded Successfully");
-              Table.findOneAndUpdate(savedTable._id, {
-                "metadata.status": "upload-complete",
-              }).then((updatedTable) => {
-                res.json({ tableId: updatedTable._id });
-              });
-              break;
-            case "error":
-              console.error("\nError: ", response.error);
-              res.send("Error Writing File");
-              break;
-            default:
-              break;
-          }
+          // Upload the file
+          upload(readPath, writePath, totalSize, (response) => {
+            switch (response.status) {
+              case "start":
+                Table.findOneAndUpdate(savedTable._id, {
+                  "metadata.status": "upload-in-progress",
+                });
+                break;
+              case "finish":
+                process.stdout.cursorTo(0);
+                process.stdout.clearLine();
+                process.stdout.write("File Uploaded Successfully");
+                Table.findOneAndUpdate(savedTable._id, {
+                  "metadata.status": "upload-complete",
+                }).then((updatedTable) => {
+                  res.json({ tableId: updatedTable._id });
+                });
+                break;
+              case "error":
+                console.error("\nError: ", response.error);
+                res.send("Error Writing File");
+                break;
+              default:
+                break;
+            }
+          });
         });
       });
-    });
   });
 };
 
@@ -305,7 +161,8 @@ module.exports.read = (req, res) => {
           {
             $project: { content: 1, tableId: { $toString: "$metadata.tableId" } },
           },
-          { $limit: req.body.limit || 10 }
+          { $skip: req.body.skip || 0 },
+          { $limit: req.body.limit || 10 },
         ])
         .then((records) => {
           console.log(records);
@@ -361,5 +218,43 @@ module.exports.getSchema = (req, res) => {
     .catch((err) => {
       console.error("Error: ", err.message);
       return res.status(500).send("Error finding table");
+    });
+};
+
+module.exports.rename = (req, res) => {
+  Table.findByIdAndUpdate(req.body.tableId, { "content.tableName": req.body.newTableName })
+    .then((table) => {
+      table
+        .save()
+        .then((savedTable) => {
+          return res.send('Table Name Updated Successfully.')
+        })
+        .catch((err) => {
+          console.error('Error: ', err.message);
+          return res.status(500).send("Something Went Wrong.");
+        });
+    })
+    .catch((err) => {
+      console.error('Error: ', err.message);
+      return res.status(500).send('Something Went Wrong.')
+    });
+};
+
+module.exports.trash = (req, res) => {
+  Table.findByIdAndUpdate(req.body.tableId, { "metadata.status": "in-trash" })
+    .then((table) => {
+      table
+        .save()
+        .then((savedTable) => {
+          return res.send('Table is in Trash.')
+        })
+        .catch((err) => {
+          console.error('Error: ', err.message);
+          return res.status(500).send("Something Went Wrong.");
+        });
+    })
+    .catch((err) => {
+      console.error('Error: ', err.message);
+      return res.status(500).send('Something Went Wrong.')
     });
 };
