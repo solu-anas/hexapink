@@ -160,20 +160,31 @@ module.exports.oldListValidTables = (req, res) => {
 };
 
 module.exports.create = (req, res) => {
-  if (!req.body.skeletonTableId) {
-    return res.status(400).send('Please Provide skeletonTableId');
+  if (!req.body.keysList) {
+    return res.status(400).send('Please Provide keysList');
+  }
+  if (!req.body.keysList.length) {
+    return res.status(400).send('keysList can\'t be empty');
   }
   if (!req.body.smartTableName) {
     return res.status(400).send('Please Provide a Name to create a Smart Table');
   }
-  Table.findById(req.body.skeletonTableId)
-    .then((table) => {
+  Key.aggregate([
+    { $match: { $expr: { $ne: ["$metadata.inTrash", true] } } },
+    { $project: { "keyId": { $toString: "$_id" } } },
+    { $match: { "keyId": { $in: req.body.keysList } } }
+  ])
+    .then((keys) => {
+      console.log(keys.length, req.body.keysList.length);
+      if (keys.length - req.body.keysList.length) {
+        return res.status(400).send('At least one key in keysList is invalid');
+      }
       const newSmartTable = new SmartTable({
         content: {
           name: req.body.smartTableName
         },
         metadata: {
-          skeletonTableId: table._id
+          keysList: req.body.keysList
         }
       });
       newSmartTable
@@ -291,135 +302,78 @@ module.exports.getSmartTableData = (req, res, next) => {
   if (!(req.body.smartTableId)) {
     return res.status(400).send("Please provide a smartTableId")
   }
-  
+
   SmartTable.findById(req.body.smartTableId)
     .then((smartTable) => {
       if (!smartTable) {
-        return res.status(404).send('SmartTable with the specified Id Not Found.');  
+        return res.status(404).send('SmartTable with the specified Id Not Found.');
       }
-
-      if (!smartTable.metadata.skeletonTableId) {
-        return res.status(400).send('skeletonTable field is missing.');
+      if (!smartTable.metadata.keysList) {
+        return res.status(400).send('keysList field is missing.');
       }
-      
       if (!smartTable.metadata.sourceTableIds.length) {
         return res.status(400).send('SmartTable is Empty: No sourceTables attached.');
       }
-      
-      Table.findById(smartTable.metadata.skeletonTableId)
-        .then((skeletonTable) => {
-          if (!skeletonTable) {
-            return res.status(404).send('skeletonTable is not Found.');
+      const keysList = smartTable.metadata.keysList;
+      Table.aggregate([
+        { $match: { $not: { "metadata.inTrash": true }, "metadata.status": "convert-complete" } },
+        {
+          $lookup:
+          {
+            from: "labels",
+            localField: "metadata.labels",
+            foreignField: "_id",
+            as: "validLabels"
           }
-          
-          Label.aggregate([
-            { $match: { _id: { $exists: true } } },
-            {
-              $project: {
-                "keyId": "$metadata.keyId",
-                labelId: { $toString: "$_id" },
-                metadata: 1
-              }
-            },
-            {
-              $lookup:
-              {
-                from: "keys",
-                localField: "metadata.keyId",
-                foreignField: "_id",
-                as: "key"
-              }
-            },
-            { $unwind: "$key" },
-            {
-              $project: {
-                "keyName": "$key.content.keyName",
-                keyId: { $toString: "$keyId" },
-                labelId: { $toString: "$labelId" },
-              }
-            },
-            {
-              $project: {
-                _id: 0,
-              }
-            },
-            { $match: { labelId: { $in: skeletonTable.metadata.labels.map((l) => (l.toHexString())) } } },
-            { $match: { "keyId": { $exists: true } } },
-          ])
-            .then((skeletonLabels) => {
-              console.log("#### skeletonLabels ####");
-              console.log(skeletonLabels);
-              const skeletonKeyIds = skeletonLabels.map((l) => (l.keyId));
-              Table.aggregate([
-                { $match: { _id: { $exists: true } } },
-                {
-                  $lookup:
-                  {
-                    from: "labels",
-                    localField: "metadata.labels",
-                    foreignField: "_id",
-                    as: "validLabels"
-                  }
+        },
+        {
+          $project: {
+            "validLabels": {
+              $filter: {
+                input: "$validLabels",
+                as: "label",
+                cond: {
+                  $in: [{ $toString: "$$label.metadata.keyId" }, keysList],
                 },
-                {
-                  $project: {
-                    "validLabels": {
-                      $filter: {
-                        input: "$validLabels",
-                        as: "label",
-                        cond: {
-                          $in: [{ $toString: "$$label.metadata.keyId" }, skeletonKeyIds],
-                        },
-                      },
-                    },
-                  },
+              },
+            },
+          },
+        },
+        {
+          $project: {
+            _id: { $toString: "$_id" },
+            "validLabels": {
+              $map: {
+                input: "$validLabels",
+                as: "label",
+                in: {
+                  labelName: "$$label.content.name",
+                  labelId: { $toString: "$$label._id" },
+                  keyId: { $toString: "$$label.metadata.keyId" },
                 },
-                {
-                  $project: {
-                    _id: { $toString: "$_id" },
-                    "validLabels": {
-                      $map: {
-                        input: "$validLabels",
-                        as: "label",
-                        in: {
-                          labelName: "$$label.content.name",
-                          labelId: { $toString: "$$label._id" },
-                          keyId: { $toString: "$$label.metadata.keyId" },
-                        },
-                      },
-                    },
-                  },
-                },
-                {
-                  $match: {
-                    $expr: {
-                      $eq: [{ $size: "$validLabels" }, skeletonKeyIds.length]
-                    }
-                  }
-                }
-              ]).then((validSourceTables) => {
-                console.log("#### validSourceTables ####");
-                console.log(validSourceTables);
-                res.locals.smartTableData = {
-                  smartTable: smartTable,
-                  validSourceTables: validSourceTables,
-                  skeletonLabels: skeletonLabels,
-                }
-                next();
-              }).catch((err) => {
-                console.log(err)
-                return res.status(500).send('Error finding valid tables');
-              })
-            })
-            .catch((err) => {
-              console.log(err)
-              return res.status(500).send('Error finding skeletonTable Labels');
-            })
-        })
-        .catch((err) => {
-          console.log(err)
-          return res.status(500).send('Error finding skeletonTable');
-        })
+              },
+            },
+          },
+        },
+        {
+          $match: {
+            $expr: {
+              $eq: [{ $size: "$validLabels" }, keysList.length]
+            }
+          }
+        }
+      ]).then((validSourceTables) => {
+        console.log("#### validSourceTables ####");
+        console.log(validSourceTables);
+        res.locals.smartTableData = {
+          smartTable: smartTable,
+          validSourceTables: validSourceTables,
+        }
+        next();
+      }).catch((err) => {
+        console.log(err)
+        return res.status(500).send('Error finding valid tables');
+      })
     })
     .catch((err) => {
       console.error(`Error: ${err.message}`);
@@ -489,4 +443,40 @@ module.exports.trash = (req, res) => {
       console.error('Error: ', err.message);
       return res.status(500).send('Something Went Wrong.');
     });
+};
+
+module.exports.restoreFromTrash = (req, res) => {
+  if (!req.body.smartTableList) {
+    return res.status(400).send('Please Provide smartTableList');
+  }
+
+  let finishedCheck = req.body.smartTableList.length;
+  req.body.smartTableList.forEach((id) => {
+    // check if the provided ids are valid
+    SmartTable.findById(id)
+      .then((smartTable) => {
+        if (!smartTable) {
+          return res.status(400).send('At least one Id in smartTableList is not valid.');
+        }
+
+        if (smartTable.metadata.status !== "in-trash") {
+          return res.status(400).send("You can't restore something that is not in trash.")
+        }
+
+        if (smartTable.metadata.status === "in-trash") {
+          smartTable.metadata.status = "convert-complete";
+          smartTable
+            .save()
+            .then((savedTable) => {
+              if (!finishedCheck) {
+                finishedCheck--;
+                return;
+              }
+              return res.send('Restored Tables and their Records Successfully.')
+            })
+        }
+      })
+  })
+
+
 };

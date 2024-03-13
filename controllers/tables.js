@@ -273,27 +273,38 @@ module.exports.trash = (req, res) => {
     return res.status(400).send('Please Provide tableId');
   }
 
-  Table.findByIdAndUpdate(req.body.tableId, { "metadata.status": "in-trash" })
+  Table.findById(req.body.tableId)
     .then((table) => {
-
       if (!table) {
         return res.status(404).send('Table Not Found.');
       }
-      
+
       if (table.metadata.status === "convert-complete") {
         Record.updateMany({ "metadata.tableId": table._id }, { "metadata.status": "in-trash" })
           .then(({ acknowledged }) => {
             if (!acknowledged) {
               return res.status(500).send('Something Went Wrong.');
             }
-            return res.send('Table and its Records are Put In Trash successfully.')
+            table.metadata.status = "in-trash";
+            table
+              .save()
+              .then((savedTable) => {
+                return res.send('Table and its Records are Put In Trash successfully.')
+              })
+              .catch((err) => {
+                console.error("Error Saving Table: ", err.message);
+                return res.status(500).send('Something Went Wrong.');
+              });
           })
           .catch((err) => {
             console.error('Error: ', err.message);
             return res.status(500).send('Something Went Wrong.');
           })
       }
-      else return res.status(400).send('Cannot Put in trash Tables that are not converted into Docs.');
+      
+      else {
+        return res.status(400).send('Cannot Put in trash Tables that are not converted into Docs.');
+      }
     })
     .catch((err) => {
       console.error('Error: ', err.message);
@@ -325,12 +336,13 @@ module.exports.restoreFromTrash = (req, res) => {
               if (!acknowledged) {
                 return res.status(500).send('Something Went Wrong.');
               }
-              table.metadata.status = "convert-complete"
+              table.metadata.status = "convert-complete";
               table
                 .save()
                 .then((savedTable) => {
                   if (!finishedCheck) {
                     finishedCheck--;
+                    return;
                   }
                   return res.send('Restored Tables and their Records Successfully.')
                 })

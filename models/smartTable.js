@@ -11,8 +11,8 @@ const smartTableSchema = new Schema({
             enum: ["empty", "filled", "in-trash"],
             default: "empty"
         },
-        skeletonTableId: {
-            type: String,
+        keysList: {
+            type: [String],
             required: true
         },
         sourceTableIds: {
