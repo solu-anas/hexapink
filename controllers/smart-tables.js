@@ -299,11 +299,11 @@ module.exports.detach = (req, res) => {
 }
 
 module.exports.getSmartTableData = (req, res, next) => {
-  if (!(req.body.smartTableId)) {
+  if (!(req.query.smartTableId)) {
     return res.status(400).send("Please provide a smartTableId")
   }
 
-  SmartTable.findById(req.body.smartTableId)
+  SmartTable.findById(req.query.smartTableId)
     .then((smartTable) => {
       if (!smartTable) {
         return res.status(404).send('SmartTable with the specified Id Not Found.');
@@ -311,12 +311,9 @@ module.exports.getSmartTableData = (req, res, next) => {
       if (!smartTable.metadata.keysList) {
         return res.status(400).send('keysList field is missing.');
       }
-      if (!smartTable.metadata.sourceTableIds.length) {
-        return res.status(400).send('SmartTable is Empty: No sourceTables attached.');
-      }
       const keysList = smartTable.metadata.keysList;
       Table.aggregate([
-        { $match: { $not: { "metadata.inTrash": true }, "metadata.status": "convert-complete" } },
+        { $match: { $expr: { $ne: ["$metadata.inTrash", true] }, "metadata.status": "convert-complete" } },
         {
           $lookup:
           {
@@ -390,7 +387,7 @@ module.exports.getValidSourceTables = (req, res) => {
 };
 
 module.exports.rename = (req, res) => {
-  if (!req.body.smartTableId) {
+  if (!req.query.smartTableId) {
     return res.status(400).send('Please Provide smartTableId.');
   }
 

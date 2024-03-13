@@ -49,7 +49,7 @@ module.exports.convert = (req, res) => {
         Table.findOneAndUpdate(table._id, {
           "metadata.status": "convert-complete",
         }).then((updatedTable) => {
-          console.log("Pipeline succeeded.");
+          console.log("\nPipeline succeeded.");
         });
       });
     })
@@ -280,12 +280,12 @@ module.exports.trash = (req, res) => {
       }
 
       if (table.metadata.status === "convert-complete") {
-        Record.updateMany({ "metadata.tableId": table._id }, { "metadata.status": "in-trash" })
+        Record.updateMany({ "metadata.tableId": table._id }, { "metadata.inTrash": true })
           .then(({ acknowledged }) => {
             if (!acknowledged) {
               return res.status(500).send('Something Went Wrong.');
             }
-            table.metadata.status = "in-trash";
+            table.metadata.inTrash = true;
             table
               .save()
               .then((savedTable) => {
@@ -326,17 +326,17 @@ module.exports.restoreFromTrash = (req, res) => {
           return res.status(400).send('At least one Id in tableList is not valid.');
         }
 
-        if (table.metadata.status !== "in-trash") {
+        if (!table.metadata.inTrash) {
           return res.status(400).send("You can't restore something that is not in trash.")
         }
 
-        if (table.metadata.status === "in-trash") {
-          Record.updateMany({ "metadata.tableId": table._id }, { "metadata.status": "active" })
+        else if (table.metadata.inTrash) {
+          Record.updateMany({ "metadata.tableId": table._id }, { "metadata.inTrash": false })
             .then(({ acknowledged }) => {
               if (!acknowledged) {
                 return res.status(500).send('Something Went Wrong.');
               }
-              table.metadata.status = "convert-complete";
+              table.metadata.inTrash = false;
               table
                 .save()
                 .then((savedTable) => {

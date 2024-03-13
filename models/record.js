@@ -8,12 +8,17 @@ const recordSchema = new Schema({
     metadata: {
         status: {
             type: String,
-            enum: ["in-trash", "active"],
+            enum: ["active"],
             default: "active",
             required: true
         },
         tableId: {
             type: Types.ObjectId,
+            required: true
+        },
+        inTrash: {
+            type: Boolean,
+            default: false,
             required: true
         }
     }

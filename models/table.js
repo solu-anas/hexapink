@@ -18,7 +18,7 @@ const tableSchema = new Schema({
         "upload-complete",
         "convert-complete",
         // "active",
-        "in-trash"
+        // "in-trash"
       ],
       default: "created",
     },
@@ -30,6 +30,11 @@ const tableSchema = new Schema({
     uuid: {
       type: String,
       default: () => new UUID()
+    },
+    inTrash: {
+      type: Boolean,
+      default: false,
+      required: true
     },
     labels: [Schema.Types.ObjectId],
   },

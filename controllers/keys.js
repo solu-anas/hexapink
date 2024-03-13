@@ -81,7 +81,7 @@ module.exports.trash = (req, res) => {
           if (!acknowledged) {
             return res.status(500).send("Something Went Wrong.");
           }
-          key.metadata.status = "in-trash";
+          key.metadata.inTrash = true;
           key.save()
             .then(() => {
               return res.send('Key is put in trash successfully.');

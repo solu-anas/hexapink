@@ -11,8 +11,13 @@ const keySchema = new Schema({
     },
     status: {
       type: String, 
-      enum: ["in-trash", "active"],
+      enum: ["active"],
       default: "active"
+    },
+    inTrash: {
+      type: Boolean,
+      required: true,
+      default: false
     }
   },
 });
