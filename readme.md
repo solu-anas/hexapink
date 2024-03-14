@@ -13,4 +13,6 @@
 | `/api/tables/link`   | `POST` | `json`      | Links Label  (based on the body's `labelId`) to a new or existing key (based on the body's `newKeyName` or `oldKeyId` and `tableId`) |
 
 ## Smart Table
+| endpoint             | method | body        | description                                                                                                            |
+| -------------------- | ------ | ----------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `/api/tables/create`   | `POST` | `json`    | Creates New SmartTable  (based on the body's `keysList` and `smartTableName`)  |
