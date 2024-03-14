@@ -1,48 +1,59 @@
-const { Table } = require('../models/Table');
-const { SmartTable } = require('../models/SmartTable');
-const { Key } = require('../models/Key');
-const { Record } = require('../models/Record');
+const { Table } = require("../models/Table");
 
-module.exports.listTrashItems = (req, res) => {
-    if (!req.query.objectList) {
-        return res.status(400).send("Please provide objectList");
-    }
-
-    const ModelsMap = {
-        "tables": Table,
-        "smart-tables": SmartTable,
-        "keys": Key,
-        "records": Record,
-    }
-
-    const objectList = JSON.parse(req.query.objectList);
-    if (!objectList.every((o) => Object.keys(ModelsMap).includes(o))) {
-        return res.status(400).send("At least one object is invalid");
-    }
-    let results = [];
-
-    let finishedCount = objectList.length;
-    const checkInterval = setInterval(() => {
-        console.log(finishedCount);
-        if (finishedCount) {
-            return;
+module.exports.toggleTrash = (req, res, boolState, finalCallback = null) => {
+    if (!req.body.tablesIds) {
+      return res.status(400).send('Please Provide tablesIds.');
+    };
+  
+    if (!req.body.tablesIds.length) {
+      return res.status(400).send('tablesIds Can\'t be empty.');
+    };
+  
+    if (!(typeof boolState === "boolean")) {
+      return res.status(500).send('Hmmm...');
+    };
+    
+  
+  
+    Table.aggregate([
+      { $match: { "metadata.inTrash": !boolState } },
+      { $project: { tableId: { $toString: "$_id" } } },
+      { $match: { "tableId": { $in: req.body.tablesIds } } }
+    ])
+      .then((tables) => {
+        if (req.body.tablesIds.length - tables.length) {
+          return res.status(400).send("At least one tableId is invalid")
         }
-        clearInterval(checkInterval);
-        return res.json(results);
-    }, 10);
-
-    objectList.forEach((objectName) => {
-        const Model = ModelsMap[objectName]
-        Model
-            .find({ "metadata.status": "in-trash" })
-            .then((stuff) => {
-                console.log(stuff);
-                results = results.concat({ type: objectName, data: stuff });
-                finishedCount--;
+  
+        changeTableTrashStatus(0);
+  
+        function changeTableTrashStatus(index) {
+  
+          // exit if finished
+          if (!(tables.length - index)) {
+            // final action
+            if (typeof finalCallback === "function") {
+              finalCallback();
+              return;
+            };
+            return res.send('finished');
+          }
+  
+          // code start
+          Table.findByIdAndUpdate(tables[index], { "metadata.inTrash": boolState })
+            .then((updatedTable) => {
+              console.log("updated:", updatedTable._id);
+  
+              // code end
+              changeTableTrashStatus(index + 1);
             })
             .catch((err) => {
-                console.error('Error: ', err.message);
-                return res.status(500).send("Something Went Wrong.");
-            });
-    })
-};
+              console.error('Error: ', err.message);
+              return res.status(500).send('Something Went Wrong.');
+            })
+        }
+      })
+  
+  
+  
+  };

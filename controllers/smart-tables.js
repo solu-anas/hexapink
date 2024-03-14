@@ -421,7 +421,7 @@ module.exports.trash = (req, res) => {
     return res.status(400).send('Please Provide smartTableId.');
   }
 
-  SmartTable.findByIdAndUpdate(req.body.smartTableId, { "metadata.status": "in-trash" })
+  SmartTable.findByIdAndUpdate(req.body.smartTableId, { "metadata.inTrash": true })
     .then((smartTable) => {
       if (!smartTable) {
         return res.send(404).send("Smart Table Not Found.")
@@ -443,7 +443,7 @@ module.exports.trash = (req, res) => {
 };
 
 module.exports.restoreFromTrash = (req, res) => {
-  if (!req.body.smartTableList) {
+  if (!req.body.smartTableList.length) {
     return res.status(400).send('Please Provide smartTableList');
   }
 
@@ -456,12 +456,12 @@ module.exports.restoreFromTrash = (req, res) => {
           return res.status(400).send('At least one Id in smartTableList is not valid.');
         }
 
-        if (smartTable.metadata.status !== "in-trash") {
+        if (!smartTable.metadata.inTrash) {
           return res.status(400).send("You can't restore something that is not in trash.")
         }
 
-        if (smartTable.metadata.status === "in-trash") {
-          smartTable.metadata.status = "convert-complete";
+        if (smartTable.metadata.inTrash) {
+          smartTable.metadata.inTrash = false;
           smartTable
             .save()
             .then((savedTable) => {
@@ -469,11 +469,9 @@ module.exports.restoreFromTrash = (req, res) => {
                 finishedCheck--;
                 return;
               }
-              return res.send('Restored Tables and their Records Successfully.')
+              return res.send('Restored SmartTables Successfully.')
             })
         }
       })
   })
-
-
 };

@@ -8,8 +8,13 @@ const smartTableSchema = new Schema({
     metadata: {
         status : {
             type: String,
-            enum: ["empty", "filled", "in-trash"],
+            enum: ["empty", "filled"],
             default: "empty"
+        },
+        inTrash: {
+            type: Boolean,
+            default: false,
+            required: true
         },
         keysList: {
             type: [String],

@@ -7,11 +7,8 @@ const recordsRouter = require("../routes/records");
 const labelsRouter = require("../routes/labels");
 const trashRouter = require("../routes/trash");
 const { healthCheck } = require('../controllers/health');
-// const formidable = require('express-formidable');
-
 
 module.exports = (app) => {
-    // app.use(formidable());
     app.use(cors({ origin: "http://localhost:3000", optionsSuccessStatus: 200 }));
     app.use(express.json());
     app.get('/api/health', healthCheck);
@@ -21,7 +18,9 @@ module.exports = (app) => {
     app.use("/api/records", recordsRouter);
     app.use("/api/labels", labelsRouter);
     app.use("/api/trash", trashRouter);
+    
     app.get('*', (req, res) => {
         res.status(404).send('Seems like you are going somewhere ...');
     });
+
 }

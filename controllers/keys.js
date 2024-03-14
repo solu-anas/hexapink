@@ -102,11 +102,45 @@ module.exports.trash = (req, res) => {
     });
 };
 
+module.exports.restoreFromTrash = (req, res) => {
+  if (!req.body.keysList.length) {
+    return res.status(400).send('Please Provide keysList.');
+  }
+
+  let finishedCheck = req.body.keysList.length;
+  req.body.keysList.forEach((id) => {
+    // check if the provided ids are valid
+    Key.findById(id)
+      .then((key) => {
+        if (!Key) {
+          return res.status(400).send('At least one Id in KeyList is not valid.');
+        }
+
+        if (!key.metadata.inTrash) {
+          return res.status(400).send("You can't restore something that is not in trash.")
+        }
+
+        if (key.metadata.inTrash) {
+          Key.metadata.inTrash = false;
+          Key
+            .save()
+            .then((savedKey) => {
+              if (!finishedCheck) {
+                finishedCheck--;
+                return;
+              }
+              return res.send('Restored Keys Successfully.')
+            })
+        }
+      })
+  })
+};
+
 module.exports.listLabels = (req, res) => {
   if (!req.query.keyId) {
     return res.status(400).send('Please Provide keyId.');
   }
-  
+
   Key.findById(req.query.keyId)
     .then((key) => {
       if (!key) {

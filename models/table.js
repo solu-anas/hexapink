@@ -17,8 +17,7 @@ const tableSchema = new Schema({
         "convert-in-progress",
         "upload-complete",
         "convert-complete",
-        // "active",
-        // "in-trash"
+        "active",
       ],
       default: "created",
     },

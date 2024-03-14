@@ -7,4 +7,4 @@ module.exports = () => {
         console.log("Connected to mongoDB successfully ...");
     })
     .catch((err) => console.error("DB Connection Error: ", err.message));
-}
+};

@@ -1,5 +1,5 @@
 const router = require('express').Router();
-const { listTrashItems } = require('../controllers/trash');
+const { listTrashItems } = require('../middleware/listTrashItems');
 
 router.get('/', listTrashItems);
 

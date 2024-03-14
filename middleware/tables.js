@@ -3,6 +3,8 @@ const { Label } = require("../models/Label");
 const { Record } = require("../models/Record");
 const { checkAndCreateDir, upload } = require("../utils/fs");
 const { insertTransform } = require("../utils/db");
+const { toggleTrash } = require("../controllers/trash");
+const { changeStatus } = require("../controllers/status");
 const { pipeline } = require("stream");
 const { join } = require("path");
 const csv = require("csv-parser");
@@ -13,21 +15,29 @@ module.exports.convert = (req, res) => {
   if (!(req.body.tableId)) {
     return res.status(400).send("Please provide a tableId");
   }
-  Table.findById(req.body.tableId)
+
+  Table
+    .findById(req.body.tableId)
     .then((table) => {
       if (!table) {
         return res.status(404).send("Table Not Found");
       }
 
       else if (table.metadata.status !== "upload-complete") {
-        console.log(table.metadata.status);
         return res.status(400).send("Bad Request");
       }
 
       // pipeline stages
       const reader = fs.createReadStream(join(__dirname, `../uploads/${table.metadata.uuid}.csv`));
-      const parser = csv();
-
+      const headers = [];
+      const parser = csv({
+        mapHeaders: ({ header, index }) => {
+          return index + "-" + header;
+        }
+      });
+      parser.once("data", (data) => {
+        console.log(data);
+      })
       const inserter = insertTransform(table, ({ type, message }) => {
         switch (type) {
           case "error":
@@ -46,11 +56,13 @@ module.exports.convert = (req, res) => {
           console.error("Pipeline failed.", err.message);
           return res.status(500).send(`Error inserting table`);
         }
+
         Table.findOneAndUpdate(table._id, {
           "metadata.status": "convert-complete",
-        }).then((updatedTable) => {
-          console.log("\nPipeline succeeded.");
-        });
+        })
+          .then((updatedTable) => {
+            console.log("\nPipeline succeeded.");
+          });
       });
     })
     .catch((err) => {
@@ -226,7 +238,37 @@ module.exports.getSchema = (req, res) => {
   const tableId = req.query.tableId;
   Table.findById(tableId)
     .then((table) => {
-      Label.aggregate([{ $match: { _id: { $in: table.metadata.labels } } }])
+      Label.aggregate([
+        { $match: { _id: { $in: table.metadata.labels } } },
+        {
+          $lookup:
+          {
+            from: "keys",
+            localField: "metadata.keyId",
+            foreignField: "_id",
+            as: "key"
+          }
+        },
+        {
+          $project: {
+            content: 1,
+            key: {
+              $cond: {
+                if: { $eq: [{ $size: "$key" }, 0] },
+                then: [{}],
+                else: "$key"
+              }
+            }
+          }
+        },
+        { $unwind: "$key" },
+        {
+          $project: {
+            labelId: "$_id", labelName: "$content.name", labelType: "$metadata.type", keyId: "$key._id", keyName: "$key.content.keyName"
+          }
+        },
+        { $project: { key: 0, _id: 0 } },
+      ])
         .then((labels) => {
           res.send(labels);
         })
@@ -261,50 +303,6 @@ module.exports.rename = (req, res) => {
           console.error('Error: ', err.message);
           return res.status(500).send("Something Went Wrong.");
         });
-    })
-    .catch((err) => {
-      console.error('Error: ', err.message);
-      return res.status(500).send('Something Went Wrong.')
-    });
-};
-
-module.exports.trash = (req, res) => {
-  if (!req.body.tableId) {
-    return res.status(400).send('Please Provide tableId');
-  }
-
-  Table.findById(req.body.tableId)
-    .then((table) => {
-      if (!table) {
-        return res.status(404).send('Table Not Found.');
-      }
-
-      if (table.metadata.status === "convert-complete") {
-        Record.updateMany({ "metadata.tableId": table._id }, { "metadata.inTrash": true })
-          .then(({ acknowledged }) => {
-            if (!acknowledged) {
-              return res.status(500).send('Something Went Wrong.');
-            }
-            table.metadata.inTrash = true;
-            table
-              .save()
-              .then((savedTable) => {
-                return res.send('Table and its Records are Put In Trash successfully.')
-              })
-              .catch((err) => {
-                console.error("Error Saving Table: ", err.message);
-                return res.status(500).send('Something Went Wrong.');
-              });
-          })
-          .catch((err) => {
-            console.error('Error: ', err.message);
-            return res.status(500).send('Something Went Wrong.');
-          })
-      }
-      
-      else {
-        return res.status(400).send('Cannot Put in trash Tables that are not converted into Docs.');
-      }
     })
     .catch((err) => {
       console.error('Error: ', err.message);
@@ -351,9 +349,27 @@ module.exports.restoreFromTrash = (req, res) => {
               console.error('Error: ', err.message);
               return res.status(500).send('Something Went Wrong.');
             })
-
         }
       })
+  });
+};
 
+module.exports.activate = (req, res) => {
+  changeStatus(req, res, "convert-complete", "active");
+};
+
+module.exports.deactivate = (req, res) => {
+  changeStatus(req, res, "active", "convert-complete");
+};
+
+module.exports.trash = (req, res) => {
+  toggleTrash(req, res, true, () => {
+    res.send('Table Put in Trash Successfully.');
+  });
+};
+
+module.exports.restore = (req, res) => {
+  toggleTrash(req, res, false, () => {
+    res.send('Table Restored Successfully.');
   });
 };

@@ -2,8 +2,6 @@ const { Transform } = require('stream');
 const { Record } = require('../models/Record');
 const { Label } = require('../models/Label');
 
-
-
 module.exports.insertTransform = (table, insertTransformCallback) => {
   let chunkIndex = 0;
   const transformerOpts = {
@@ -53,6 +51,7 @@ const insertRecord = (chunk, table, cb) => {
 
 const setLabels = (chunk, table, setLabelsCallBack) => {
   let labels = Object.keys(chunk);
+  console.log("#####", labels.length);
   let labelIndex = 0;
 
   const pushLabel = (label, table, cb) => {
@@ -73,8 +72,7 @@ const setLabels = (chunk, table, setLabelsCallBack) => {
           .catch((err) => {
             console.log(err.message);
             setLabelsCallBack({ type: "error", message: "Error updating table labels" });
-          })
-          ;
+          });
       })
 
       .catch((err) => {
@@ -89,7 +87,7 @@ const setLabels = (chunk, table, setLabelsCallBack) => {
     else {
       setLabelsCallBack({ type: "end", message: { tableId: table._id } });
     }
-  }
+  };
+  
   pushLabel(labels[labelIndex], table, pushLabelCb);
-
 };
