@@ -11,4 +11,3 @@
 | `/api/tables/read`   | `GET`  | `json`      | Returns all the Records of a specified Table (based on the body's `tableId` and `limit`)                               |
 | `/api/tables/schema` | `GET`  | `json`      | Gets the Table's Labels (based on the body's `tableId`)                                                                |
 | `/api/tables/link`   | `POST` | `json`      | Links Label  (based on the body's `labelId`) to a new or existing key (based on the body's `newKeyName` or `oldKeyId` and `tableId`) |
-
