@@ -97,28 +97,6 @@ module.exports.upload = (req, res) => {
   // Parse the incoming form data
   form.parse(req, (err, fields, files) => {
     const file = files.file[0];
-    // if (err) {
-    //   console.log("Upload Error: ", err.message);
-    //   return res.send("Error Uploading File.");
-    // }
-    const reader = fs.createReadStream(join(tmpdir(), file.newFilename));
-    const parser = csv();
-    const jpegSignature = Buffer.from([0xFF, 0xD8, 0xFF])
-
-    // check file signature
-    reader.once("data", function (buffer) {
-      console.log(buffer.slice(0, 3));
-      if (buffer.slice(0, 3).equals(jpegSignature)) {
-        console.log('hmmm...')
-        this.emit('error', new Error('This file is JPEG not CSV'));
-      };
-    });
-
-    pipeline(reader, parser, (err) => {
-      if (err) {
-        form.emit('error', err);
-      };
-    })
     if (!Object.keys(files).length) {
       return res.status(400).send('Please attach a .csv file to the FormData.');
     }
@@ -127,60 +105,84 @@ module.exports.upload = (req, res) => {
       return res.status(400).send('The Uploader can accept only One .csv file Per Upload.');
     }
 
+    const reader = fs.createReadStream(join(tmpdir(), file.newFilename), { start: 0, end: 262 });
+    const parser = csv();
+    const jpegSignature = Buffer.from([0xFF, 0xD8, 0xFF])
 
-    // creating table document
-    const table = new Table({
-      content: {
-        tableName: fields.tableName[0] || file.originalFilename,
-      },
-      metadata: {
-        originalFilename: file.originalFilename,
-      },
+    // check file signature
+    let isValid;
+    reader.once("data", function (buffer) {
+      console.log(buffer)
+      console.log(buffer.slice(0, 3));
+      if (buffer.slice(0, 3).equals(jpegSignature)) {
+        isValid = false;
+        return this.emit('error', new Error('This file is JPEG not CSV'));
+      };
+      isValid = true;
     });
 
-    table
-      .save()
-      .then((savedTable) => {
-        const { uuid } = savedTable.metadata;
-        // Check and Create /uploads directory
-        checkAndCreateDir("./uploads", () => {
-          // Get the file details
+    pipeline(reader, parser, (err) => {
+      if (err) {
+        return form.emit('error', err);
+      };
+    })
 
-          const readPath = file.filepath;
-          const writePath = "./uploads/" + uuid + ".csv";
+    if (isValid) {
+      // creating table document
+      const table = new Table({
+        content: {
+          tableName: fields.tableName[0] || file.originalFilename,
+        },
+        metadata: {
+          originalFilename: file.originalFilename,
+        },
+      });
 
-          // Upload the file
-          upload(readPath, writePath, totalSize, (response) => {
-            switch (response.status) {
-              case "start":
-                Table.findOneAndUpdate(savedTable._id, {
-                  "metadata.status": "upload-in-progress",
-                });
-                break;
-              case "finish":
-                process.stdout.cursorTo(0);
-                process.stdout.clearLine();
-                process.stdout.write("File Uploaded Successfully");
-                Table.findOneAndUpdate(savedTable._id, {
-                  "metadata.status": "upload-complete",
-                }).then((updatedTable) => {
-                  res.json({ tableId: updatedTable._id });
-                });
-                break;
-              case "error":
-                console.error("\nError: ", response.error);
-                res.send("Error Writing File");
-                break;
-              default:
-                break;
-            }
+      table
+        .save()
+        .then((savedTable) => {
+          const { uuid } = savedTable.metadata;
+          // Check and Create /uploads directory
+          checkAndCreateDir("./uploads", () => {
+            // Get the file details
+
+            const readPath = file.filepath;
+            const writePath = "./uploads/" + uuid + ".csv";
+
+            // Upload the file
+            upload(readPath, writePath, totalSize, (response) => {
+              switch (response.status) {
+                case "start":
+                  Table.findOneAndUpdate(savedTable._id, {
+                    "metadata.status": "upload-in-progress",
+                  });
+                  break;
+                case "finish":
+                  process.stdout.cursorTo(0);
+                  process.stdout.clearLine();
+                  process.stdout.write("File Uploaded Successfully");
+                  Table.findOneAndUpdate(savedTable._id, {
+                    "metadata.status": "upload-complete",
+                  }).then((updatedTable) => {
+                    res.json({ tableId: updatedTable._id });
+                  });
+                  break;
+                case "error":
+                  console.error("\nError: ", response.error);
+                  res.send("Error Writing File");
+                  break;
+                default:
+                  break;
+              }
+            });
           });
         });
-      });
+    }
   });
 
   form.on("error", (err) => {
-
+    console.error(err.message);
+    return res.status(500).send('Upload Failed. Please Try Again.');
   });
 }
 
