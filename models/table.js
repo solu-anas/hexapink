@@ -36,6 +36,10 @@ const tableSchema = new Schema({
       required: true
     },
     labels: [Schema.Types.ObjectId],
+    createdAt: {
+      type: Date,
+      default: Date.now
+    }
   },
 });
 

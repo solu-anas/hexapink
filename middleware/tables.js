@@ -7,6 +7,7 @@ const { toggleTrash } = require("../controllers/trash");
 const { changeStatus } = require("../controllers/status");
 const { pipeline } = require("stream");
 const { join } = require("path");
+const { tmpdir } = require('os');
 const csv = require("csv-parser");
 const formidable = require("formidable").formidable;
 const fs = require("fs");
@@ -29,7 +30,6 @@ module.exports.convert = (req, res) => {
 
       // pipeline stages
       const reader = fs.createReadStream(join(__dirname, `../uploads/${table.metadata.uuid}.csv`));
-      const headers = [];
       const parser = csv({
         mapHeaders: ({ header, index }) => {
           return index + "-" + header;
@@ -76,25 +76,49 @@ module.exports.upload = (req, res) => {
   const totalSize = req.headers["content-length"];
   const form = formidable({});
 
-  form.on("fileBegin", (filename, file) => {
-    console.log("\nfile upload started", filename);
-  });
+  form.on('fileBegin', (formName, file) => {
+    const allowedFileExtensions = ['csv'];
+    const allowedFileTypes = ['text/csv'];
+    const fileExtension = file.originalFilename.slice(((file.originalFilename.lastIndexOf('.') - 1) >>> 0) + 2);
+    const fileTypeError = new Error('Invalid File Type, only .csv files are allowed.');
 
-  form.on("error", (err) => {
-    console.error("Error: ", err.message);
-    res.send("Error Uploading File");
-  });
-
-  // Parse the incoming form data
-  form.parse(req, (err, fields, files) => {
-    // Handle errors
-    // Then Send immediate response to the client
-    if (err) {
-      res.send("error uploading file");
-      console.log("\nerror uploading file", err);
+    if (!allowedFileExtensions.includes(fileExtension)) {
+      form.emit('error', fileTypeError);
       return;
     }
 
+    if (!allowedFileTypes.includes(file.mimetype)) {
+      form.emit('error', fileTypeError);
+      return;
+    }
+    console.log(`\nStarted Uploading: ${file.originalFilename}`);
+  })
+
+  // Parse the incoming form data
+  form.parse(req, (err, fields, files) => {
+    const file = files.file[0];
+    // if (err) {
+    //   console.log("Upload Error: ", err.message);
+    //   return res.send("Error Uploading File.");
+    // }
+    const reader = fs.createReadStream(join(tmpdir(), file.newFilename));
+    const parser = csv();
+    const jpegSignature = Buffer.from([0xFF, 0xD8, 0xFF])
+
+    // check file signature
+    reader.once("data", function (buffer) {
+      console.log(buffer.slice(0, 3));
+      if (buffer.slice(0, 3).equals(jpegSignature)) {
+        console.log('hmmm...')
+        this.emit('error', new Error('This file is JPEG not CSV'));
+      };
+    });
+
+    pipeline(reader, parser, (err) => {
+      if (err) {
+        form.emit('error', err);
+      };
+    })
     if (!Object.keys(files).length) {
       return res.status(400).send('Please attach a .csv file to the FormData.');
     }
@@ -103,14 +127,14 @@ module.exports.upload = (req, res) => {
       return res.status(400).send('The Uploader can accept only One .csv file Per Upload.');
     }
 
-    const file = files.file[0];
-    const originalFilename = file.originalFilename;
+
+    // creating table document
     const table = new Table({
       content: {
-        tableName: fields.tableName[0] || originalFilename,
+        tableName: fields.tableName[0] || file.originalFilename,
       },
       metadata: {
-        originalFilename: originalFilename,
+        originalFilename: file.originalFilename,
       },
     });
 
@@ -154,7 +178,11 @@ module.exports.upload = (req, res) => {
         });
       });
   });
-};
+
+  form.on("error", (err) => {
+
+  });
+}
 
 module.exports.read = (req, res) => {
   if (!(req.query.tableId)) {

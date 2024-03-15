@@ -1,7 +1,7 @@
 const { Label } = require('../models/Label');
 const { Table } = require('../models/Table');
 const { Key } = require('../models/Key');
-const { updateKey } = require('../controllers/keys');
+const { updateKey } = require('./keys');
 
 module.exports.rename = (req, res) => {
     if (!req.body.labelId) {
@@ -44,7 +44,7 @@ module.exports.link = (req, res) => {
                 .then((tables) => {
                     if (!tables.length) {
                         return res.status(404).send("Table with specified label Not Found");
-                    }  
+                    }
                     const table = tables[0];
                     // check if req.body.oldKeyId is set
                     if (req.body.oldKeyId) {
@@ -152,4 +152,23 @@ module.exports.link = (req, res) => {
             console.log(err.message);
             res.status(500).send("Error finding label");
         });
+};
+
+module.exports.unlink = (req, res) => {
+    if (!req.body.labelId) {
+        return res.status(400).send('Please Provide labelId.');
+    };
+
+    Label
+        .findByIdAndUpdate(req.body.labelId, { $unset: { "metadata.keyId": { $exists: true } } })
+        .then((label) => {
+            if (!label) {
+                return res.status(500).send("Something Went Wrong.");
+            }
+            return res.send('Label unlinked successfully.');
+        })
+        .catch((err) => {
+            console.error('Error: ', err.message);
+            return res.status(500).send('Something Went Wrong.');
+        })
 };

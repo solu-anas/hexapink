@@ -7,5 +7,4 @@ router.get("/labels", listLabels);
 router.post("/rename", rename);
 router.post("/trash", trash);
 
-
 module.exports = router;
