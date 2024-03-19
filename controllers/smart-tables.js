@@ -3,6 +3,7 @@ const { Table } = require("../models/Table");
 const { Label } = require("../models/Label");
 const { Key } = require("../models/Key");
 const { Record } = require("../models/Record");
+const { toggleTrash } = require("./trash");
 
 module.exports.list = (req, res) => {
   if (!req.query.statusList) {
@@ -417,61 +418,13 @@ module.exports.rename = (req, res) => {
 };
 
 module.exports.trash = (req, res) => {
-  if (!req.body.smartTableId) {
-    return res.status(400).send('Please Provide smartTableId.');
-  }
-
-  SmartTable.findByIdAndUpdate(req.body.smartTableId, { "metadata.inTrash": true })
-    .then((smartTable) => {
-      if (!smartTable) {
-        return res.send(404).send("Smart Table Not Found.")
-      }
-      smartTable
-        .save()
-        .then((savedSmartTable) => {
-          return res.send('Smart Table Put in Trash Successfully.');
-        })
-        .catch((err) => {
-          console.error('Error: ', err.message);
-          return res.status(500).send('Something Went Wrong.')
-        })
-    })
-    .catch((err) => {
-      console.error('Error: ', err.message);
-      return res.status(500).send('Something Went Wrong.');
-    });
+  toggleTrash(res, "smartTable", req.body.smartTableIds, true, () => {
+    res.send('smartTable Put in Trash Successfully.');
+  });
 };
 
-module.exports.restoreFromTrash = (req, res) => {
-  if (!req.body.smartTableList.length) {
-    return res.status(400).send('Please Provide smartTableList');
-  }
-
-  let finishedCheck = req.body.smartTableList.length;
-  req.body.smartTableList.forEach((id) => {
-    // check if the provided ids are valid
-    SmartTable.findById(id)
-      .then((smartTable) => {
-        if (!smartTable) {
-          return res.status(400).send('At least one Id in smartTableList is not valid.');
-        }
-
-        if (!smartTable.metadata.inTrash) {
-          return res.status(400).send("You can't restore something that is not in trash.")
-        }
-
-        if (smartTable.metadata.inTrash) {
-          smartTable.metadata.inTrash = false;
-          smartTable
-            .save()
-            .then((savedTable) => {
-              if (!finishedCheck) {
-                finishedCheck--;
-                return;
-              }
-              return res.send('Restored SmartTables Successfully.')
-            })
-        }
-      })
-  })
+module.exports.restore = (req, res) => {
+  toggleTrash(res, "smartTable", req.body.smartTableIds, false, () => {
+    res.send('smartTable Restored Successfully.');
+  });
 };

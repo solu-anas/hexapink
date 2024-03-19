@@ -20,6 +20,6 @@ const keySchema = new Schema({
       default: false
     }
   },
-});
+}, {timestamps: true});
 
 module.exports.Key = model("Key", keySchema);

@@ -18,6 +18,6 @@ const labelSchema = new Schema({
       required: true,
     },
   },
-});
+}, {timestamps: true});
 
 module.exports.Label = model("Label", labelSchema);

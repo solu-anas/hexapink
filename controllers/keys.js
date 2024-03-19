@@ -1,5 +1,6 @@
 const { Key } = require('../models/Key');
 const { Label } = require('../models/Label');
+const { toggleTrash } = require('./trash');
 
 module.exports.updateKey = (label, newKeyId, cb) => {
   label.metadata.keyId = newKeyId;
@@ -63,79 +64,6 @@ module.exports.rename = (req, res) => {
     })
 };
 
-module.exports.trash = (req, res) => {
-  if (!req.body.keyId) {
-    return res.status(400).send("Please Provide keyId.")
-  }
-
-  Key.findById(req.body.keyId)
-    .then((key) => {
-      if (!key) {
-        return res.status(404).send('Key with specified Id Not Found.');
-      }
-
-      // find all the labels that are linked to the key you want to put in trash and "unlink" them
-      Label
-        .updateMany({ "metadata.keyId": key._id }, { $unset: { "metadata.keyId": { $exists: true } } })
-        .then(({ acknowledged }) => {
-          if (!acknowledged) {
-            return res.status(500).send("Something Went Wrong.");
-          }
-          key.metadata.inTrash = true;
-          key.save()
-            .then(() => {
-              return res.send('Key is put in trash successfully.');
-            })
-            .catch((err) => {
-              console.error('Error: ', err.message);
-              return res.status(500).send('Error Updating Key Status.');
-            })
-        })
-        .catch((err) => {
-          console.error('Error: ', err.message);
-          return res.status(500).send('Something Went Wrong.');
-        })
-    })
-    .catch((err) => {
-      console.error('Error: ', err.message);
-      return res.status(500).send('Something Went Wrong.');
-    });
-};
-
-module.exports.restoreFromTrash = (req, res) => {
-  if (!req.body.keysList.length) {
-    return res.status(400).send('Please Provide keysList.');
-  }
-
-  let finishedCheck = req.body.keysList.length;
-  req.body.keysList.forEach((id) => {
-    // check if the provided ids are valid
-    Key.findById(id)
-      .then((key) => {
-        if (!Key) {
-          return res.status(400).send('At least one Id in KeyList is not valid.');
-        }
-
-        if (!key.metadata.inTrash) {
-          return res.status(400).send("You can't restore something that is not in trash.")
-        }
-
-        if (key.metadata.inTrash) {
-          Key.metadata.inTrash = false;
-          Key
-            .save()
-            .then((savedKey) => {
-              if (!finishedCheck) {
-                finishedCheck--;
-                return;
-              }
-              return res.send('Restored Keys Successfully.')
-            })
-        }
-      })
-  })
-};
-
 module.exports.listLabels = (req, res) => {
   if (!req.query.keyId) {
     return res.status(400).send('Please Provide keyId.');
@@ -163,4 +91,16 @@ module.exports.listLabels = (req, res) => {
       console.error('Error: ', err.message);
       return res.status(500).send('Something Went Wrong.');
     });
+};
+
+module.exports.trash = (req, res) => {
+  toggleTrash(res, "key", req.body.keyIds, true, () => {
+    res.send('Key Put in Trash Successfully.');
+  });
+};
+
+module.exports.restore = (req, res) => {
+  toggleTrash(res, "key", req.body.keyIds, false, () => {
+    res.send('Key Restored Successfully.');
+  });
 };

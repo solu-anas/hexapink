@@ -15,13 +15,8 @@ const recordSchema = new Schema({
         tableId: {
             type: Types.ObjectId,
             required: true
-        },
-        inTrash: {
-            type: Boolean,
-            default: false,
-            required: true
         }
     }
-});
+}, {timestamps: true});
 
 module.exports.Record = model("Record", recordSchema);

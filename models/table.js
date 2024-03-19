@@ -35,12 +35,8 @@ const tableSchema = new Schema({
       default: false,
       required: true
     },
-    labels: [Schema.Types.ObjectId],
-    createdAt: {
-      type: Date,
-      default: Date.now
-    }
+    labels: [Schema.Types.ObjectId]
   },
-});
+}, {timestamps: true});
 
 module.exports.Table = model("Table", tableSchema);

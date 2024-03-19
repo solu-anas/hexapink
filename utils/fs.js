@@ -19,18 +19,21 @@ module.exports.checkAndCreateDir = (directoryPath, cb) => {
   });
 };
 
-module.exports.upload = (readPath, writePath, totalSize, cb) => {
-  const readStream = fs.createReadStream(readPath);
+module.exports.upload = (encoding, readPath, writePath, totalSize, cb) => {
+  const readStream = fs.createReadStream(readPath, {encoding});
   const writeStream = fs.createWriteStream(writePath);
-  
   readStream.pipe(writeStream);
-  
+
   writeStream.on("error", (err) => {
     console.error("\nError writing file:", err);
   });
 
   let uploadedSize = 0;
   readStream.on("data", (chunk) => {
+    if (chunk.includes("\ufffd")) {
+      readStream.destroy(new Error(`Invalid ${encoding} character`));
+      return;
+    }
     uploadedSize += chunk.length;
     const progress = ((uploadedSize / totalSize) * 100).toFixed(2);
     process.stdout.clearLine();
@@ -39,15 +42,15 @@ module.exports.upload = (readPath, writePath, totalSize, cb) => {
   });
 
   readStream.once("data", () => {
-    cb({status: "start"});
+    cb({ status: "start" });
   })
 
   writeStream.on("finish", () => {
-    cb({status: "finish", message: "File Uploaded Successfully\n"});
+    cb({ status: "finish", message: "File Uploaded Successfully\n" });
   });
 
 
   writeStream.on("error", (err) => {
-    cb({status: "error", error: err});
+    cb({ status: "error", error: err });
   });
 };

@@ -5,6 +5,6 @@ const collectionSchema = new Schema({
         type: Object,
         required: true
     }
-});
+}, {timestamps: true});
 
 module.exports.Collection = model("Collection", collectionSchema);

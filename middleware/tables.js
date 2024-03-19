@@ -7,18 +7,31 @@ const { toggleTrash } = require("../controllers/trash");
 const { changeStatus } = require("../controllers/status");
 const { pipeline } = require("stream");
 const { join } = require("path");
-const { tmpdir } = require('os');
 const csv = require("csv-parser");
 const formidable = require("formidable").formidable;
+
 const fs = require("fs");
 
 module.exports.convert = (req, res) => {
-  if (!(req.body.tableId)) {
+  const { tableId, escape, separator, quote, newline } = req.body;
+  if (!tableId) {
     return res.status(400).send("Please provide a tableId");
   }
+  // if (!separator) {
+  //   return res.status(400).send("Please provide a separator");
+  // }
+  // if (!escape) {
+  //   return res.status(400).send("Please provide a escape");
+  // }
+  // if (!quote) {
+  //   return res.status(400).send("Please provide a quote");
+  // }
+  // if (!newline) {
+  //   return res.status(400).send("Please provide a newline");
+  // }
 
   Table
-    .findById(req.body.tableId)
+    .findById(tableId)
     .then((table) => {
       if (!table) {
         return res.status(404).send("Table Not Found");
@@ -33,7 +46,11 @@ module.exports.convert = (req, res) => {
       const parser = csv({
         mapHeaders: ({ header, index }) => {
           return index + "-" + header;
-        }
+        },
+        escape: escape || "\"",
+        separator: separator || ",",
+        quote: quote || "\"",
+        newline: newline || "\n"
       });
       parser.once("data", (data) => {
         console.log(data);
@@ -41,8 +58,10 @@ module.exports.convert = (req, res) => {
       const inserter = insertTransform(table, ({ type, message }) => {
         switch (type) {
           case "error":
+            console.log(message)
             return res.status(500).send(message);
           case "end":
+            console.log(message);
             return res.json(message);
 
           default:
@@ -74,7 +93,7 @@ module.exports.convert = (req, res) => {
 
 module.exports.upload = (req, res) => {
   const totalSize = req.headers["content-length"];
-  const form = formidable({});
+  const form = formidable();
 
   form.on('fileBegin', (formName, file) => {
     const allowedFileExtensions = ['csv'];
@@ -91,97 +110,93 @@ module.exports.upload = (req, res) => {
       form.emit('error', fileTypeError);
       return;
     }
-    console.log(`\nStarted Uploading: ${file.originalFilename}`);
+    console.log(`Formidable: Started Uploading: ${file.originalFilename}`);
   })
 
   // Parse the incoming form data
   form.parse(req, (err, fields, files) => {
-    const file = files.file[0];
+    console.log("Formidable: Started Parsing");
+    if (err) {
+      return;
+    }
+
     if (!Object.keys(files).length) {
       return res.status(400).send('Please attach a .csv file to the FormData.');
+    }
+
+    if (!files.file?.length) {
+      return res.status(400).send('No file provided or empty file');
     }
 
     if (files.file.length !== 1) {
       return res.status(400).send('The Uploader can accept only One .csv file Per Upload.');
     }
 
-    const reader = fs.createReadStream(join(tmpdir(), file.newFilename), { start: 0, end: 262 });
-    const parser = csv();
-    const jpegSignature = Buffer.from([0xFF, 0xD8, 0xFF])
+    const encoding = fields.encoding[0];
+    if (!encoding) {
+      return res.status(400).send("Provide one of the following encodings" + validEncodings.join(", "));
+    }
 
-    // check file signature
-    let isValid;
-    reader.once("data", function (buffer) {
-      console.log(buffer)
-      console.log(buffer.slice(0, 3));
-      if (buffer.slice(0, 3).equals(jpegSignature)) {
-        isValid = false;
-        return this.emit('error', new Error('This file is JPEG not CSV'));
-      };
-      isValid = true;
-    });
+    const validEncodings = ["utf8", "utf-8", "utf16le", "utf-16le"];
+    if (!validEncodings.includes(encoding)) {
+      return res.status(400).send("Incorrect encoding. Provide one of the following encodings:\n" + validEncodings.join(", "))
+    }
 
-    pipeline(reader, parser, (err) => {
-      if (err) {
-        return form.emit('error', err);
-      };
+    const file = files.file[0];
+
+    // creating table document
+    const table = new Table({
+      content: {
+        tableName: fields.tableName[0] || file.originalFilename,
+      },
+      metadata: {
+        originalFilename: file.originalFilename,
+      },
     })
 
-    if (isValid) {
-      // creating table document
-      const table = new Table({
-        content: {
-          tableName: fields.tableName[0] || file.originalFilename,
-        },
-        metadata: {
-          originalFilename: file.originalFilename,
-        },
-      });
+    table
+      .save()
+      .then((savedTable) => {
+        const { uuid } = savedTable.metadata;
+        // Check and Create /uploads directory
+        checkAndCreateDir("./uploads", () => {
+          // Get the file details
 
-      table
-        .save()
-        .then((savedTable) => {
-          const { uuid } = savedTable.metadata;
-          // Check and Create /uploads directory
-          checkAndCreateDir("./uploads", () => {
-            // Get the file details
+          const readPath = file.filepath;
+          const writePath = "./uploads/" + uuid + ".csv";
 
-            const readPath = file.filepath;
-            const writePath = "./uploads/" + uuid + ".csv";
-
-            // Upload the file
-            upload(readPath, writePath, totalSize, (response) => {
-              switch (response.status) {
-                case "start":
-                  Table.findOneAndUpdate(savedTable._id, {
-                    "metadata.status": "upload-in-progress",
-                  });
-                  break;
-                case "finish":
-                  process.stdout.cursorTo(0);
-                  process.stdout.clearLine();
-                  process.stdout.write("File Uploaded Successfully");
-                  Table.findOneAndUpdate(savedTable._id, {
-                    "metadata.status": "upload-complete",
-                  }).then((updatedTable) => {
-                    res.json({ tableId: updatedTable._id });
-                  });
-                  break;
-                case "error":
-                  console.error("\nError: ", response.error);
-                  res.send("Error Writing File");
-                  break;
-                default:
-                  break;
-              }
-            });
+          // Upload the file
+          upload(encoding, readPath, writePath, totalSize, (response) => {
+            switch (response.status) {
+              case "start":
+                Table.findOneAndUpdate(savedTable._id, {
+                  "metadata.status": "upload-in-progress",
+                });
+                break;
+              case "finish":
+                process.stdout.cursorTo(0);
+                process.stdout.clearLine();
+                process.stdout.write("File Uploaded Successfully\n");
+                Table.findOneAndUpdate(savedTable._id, {
+                  "metadata.status": "upload-complete",
+                }).then((updatedTable) => {
+                  res.json({ tableId: updatedTable._id });
+                });
+                break;
+              case "error":
+                console.error("\nError: ", response.error);
+                res.send("Error Writing File");
+                break;
+              default:
+                break;
+            }
           });
         });
-    }
-  });
+      });
+  })
 
   form.on("error", (err) => {
-    console.error(err.message);
+    console.log('Formidable: ' + err.message);
     return res.status(500).send('Upload Failed. Please Try Again.');
   });
 }
@@ -233,19 +248,29 @@ module.exports.read = (req, res) => {
 };
 
 module.exports.list = (req, res) => {
+
   if (!(req.query.statusList)) {
     return res.status(400).send("Please provide a statusList");
   }
+  const statusList = JSON.parse(req.query.statusList);
 
-  if (req.query.statusList.includes("in-trash")) {
-    return res.status(400).send('Cannot List Tables that have an "in-trash" status');
+  const validStatuses = [
+    "created",
+    "upload-in-progress",
+    "convert-in-progress",
+    "upload-complete",
+    "convert-complete",
+    "active",
+  ];
+  if (!(statusList.every(s => validStatuses.includes(s)))) {
+    return res.status(400).send("At least on status is invalid");
   }
 
   const pipeline = [
     {
       $match: {
-        _id: { $exists: true },
-        "metadata.status": { $in: JSON.parse(req.query.statusList) },
+        "metadata.inTrash": false,
+        "metadata.status": { $in: statusList },
       },
     },
     { $limit: parseInt(req.query.limit) || 10 },
@@ -261,7 +286,7 @@ module.exports.list = (req, res) => {
     });
 };
 
-module.exports.getSchema = (req, res) => {
+module.exports.getInfo = (req, res) => {
   if (!(req.query.tableId)) {
     return res.status(500).send("Please provide a tableId");
   }
@@ -300,7 +325,15 @@ module.exports.getSchema = (req, res) => {
         { $project: { key: 0, _id: 0 } },
       ])
         .then((labels) => {
-          res.send(labels);
+          res.json({
+            tableInfo: {
+              tableId: table._id,
+              tableName: table.content.tableName,
+              schema: table.metadata.labels.map((l) => (
+                labels.find((_l) => (_l.labelId.toHexString() === l.toHexString()))
+              ))
+            }
+          });
         })
         .catch((err) => {
           console.error("Error: ", err.message);
@@ -393,13 +426,60 @@ module.exports.deactivate = (req, res) => {
 };
 
 module.exports.trash = (req, res) => {
-  toggleTrash(req, res, true, () => {
+  toggleTrash(res, "table", req.body.tableIds, true, () => {
     res.send('Table Put in Trash Successfully.');
   });
 };
 
 module.exports.restore = (req, res) => {
-  toggleTrash(req, res, false, () => {
+  toggleTrash(res, "table", req.body.tableIds, false, () => {
     res.send('Table Restored Successfully.');
   });
 };
+
+module.exports.order = (req, res) => {
+  if (!req.body.tableId) {
+    return res.status(400).send("Please provide tableId");
+  }
+  const tableId = req.body.tableId;
+
+  if (!req.body.orderedLabels) {
+    return res.status(400).send("Please provide orderedLabels");
+  }
+  const orderedLabels = req.body.orderedLabels;
+
+  if (!(orderedLabels instanceof Array)) {
+    return res.status(400).send("orderedLabels must be an Array");
+  }
+  Table.findById(tableId).then((table) => {
+    if (!table) {
+      return res.status(404).send("table not found");
+    }
+    if (!verifyOrderChange(table.metadata.labels.map((l) => l.toHexString()), orderedLabels)) {
+      return res.status(400).send("invalid orderedLabels");
+    }
+    table.metadata.labels = orderedLabels;
+    table.save().then((savedTable) => {
+      return res.send(`Table ${savedTable._id} updated labels's order successfully`);
+
+    }).catch((err) => {
+      console.log(err.message);
+      return res.status(500).send("Error saving table");
+    })
+  }).catch((err) => {
+    console.log(err.message);
+    return res.status(500).send("Error finding table");
+  })
+
+  // verifies if orderedLabels elements can replace old metadata.labels
+  function verifyOrderChange(oldOrder, newOrder) {
+    if (oldOrder.length - newOrder.length) {
+      return false;
+    }
+    if (!(oldOrder.every((item) => newOrder.includes(item)))) {
+      return false;
+    }
+    return true;
+  }
+};
+

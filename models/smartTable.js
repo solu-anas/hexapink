@@ -26,6 +26,6 @@ const smartTableSchema = new Schema({
         },
         collections: [Types.ObjectId]
     }
-});
+}, {timestamps: true});
 
 module.exports.SmartTable = model("SmartTable", smartTableSchema);
