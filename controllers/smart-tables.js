@@ -428,3 +428,288 @@ module.exports.restore = (req, res) => {
     res.send('smartTable Restored Successfully.');
   });
 };
+
+module.exports.order = (req, res) => {
+  if (!req.body.smartTableId) {
+    return res.status(400).send('Please Provide smartTableId.');
+  };
+  const smartTableId = req.body.smartTableId;
+
+  if (!req.body.orderedKeys) {
+    return res.status(400).send("Please Provide orderedKeys.")
+  };
+  const orderedKeys = req.body.orderedKeys;
+
+  if (!orderedKeys instanceof Array) {
+    return res.status(400).send('orderedKeys must be an Array.');
+  };
+
+  SmartTable.findById(smartTableId)
+    .then((smartTable) => {
+      if (!smartTable) {
+        return res.status(404).send('Smart Table Not Found.');
+      };
+
+      if (!verifyOrderChange(smartTable.metadata.keysList, orderedKeys)) {
+        return res.status(400).send("Invalid orderedKeys.");
+      };
+
+      smartTable.metadata.keysList = orderedKeys;
+      smartTable.save().then((savedSmartTable) => {
+        return res.send(`Updated SmartTable: ${savedSmartTable.metadata.keysList} Successfully.`)
+      });
+    })
+    .catch((err) => {
+      console.error(err.message);
+      return res.status(500).send("Error Finding SmartTable.")
+    })
+
+  function verifyOrderChange(oldOrder, newOrder) {
+    if (oldOrder.length - newOrder.length) {
+      return false;
+    }
+    if (!(oldOrder.every((item) => newOrder.includes(item)))) {
+      return false;
+    }
+    return true;
+  }
+};
+
+module.exports.getKeys = (req, res) => {
+  if (!req.body.smartTableId) {
+    return res.status(400).send('Please Provide smartTableId.');
+  };
+  const smartTableId = req.body.smartTableId;
+
+  SmartTable
+    .findById(smartTableId)
+    .then((smartTable) => {
+      Key.aggregate([
+        { $match: { _id: { $exists: true } } },
+        { $project: { _id: { $toString: "$_id" }, content: 1, metadata: 1 } },
+        { $match: { _id: { $in: smartTable.metadata.keysList } } },
+        { $project: { keyId: "$_id", keyName: "$content.keyName" } },
+        { $project: { _id: 0 } }
+      ])
+        .then((keys) => {
+          const result = smartTable.metadata.keysList.map((k) => (
+            keys.find((_k) => (_k.keyId === k))
+          ))
+          return res.json(result);
+        })
+        .catch((err) => {
+          console.error('Error: ', err.message);
+          return res.status(500).send('Something Went Wrong.');
+        })
+
+    })
+    .catch((err) => {
+      console.error('Error: ', err.message);
+      return res.status(500).send('Something Went Wrong.');
+    })
+};
+
+module.exports.add = (req, res) => {
+  if (!req.body.smartTableId) {
+    return res.status(400).send('Please Provide smartTableId.');
+  };
+  const smartTableId = req.body.smartTableId;
+
+  if (!req.body.keyId) {
+    return res.status(400).send('Please Provide keyId.');
+  };
+  const keyId = req.body.keyId;
+
+  SmartTable.findById(smartTableId)
+    .then((smartTable) => {
+      if (!smartTable) {
+        return res.status(404).send('smartTable with provided Id not found.');
+      };
+
+      Key.findById(keyId)
+        .then((key) => {
+          if (!key) {
+            return res.status(404).send('key with provided Id not found.');
+          };
+
+          // check if provided key is already attached to smartTable
+          if (smartTable.metadata.keysList.includes(key._id.toHexString())) {
+            return res.status(400).send('Can\'t Add an already Attached Key. Please Add a different Key.');
+          };
+          smartTable.metadata.keysList.push(key._id);
+          smartTable.save()
+            .then((smartTable) => {
+              return res.send('Added key to keysList successfully.');
+            })
+            .catch((err) => {
+              console.error('Error: ', err.message);
+              return res.status(500).send('Something Went Wrong.');
+            })
+        })
+        .catch((err) => {
+          console.error('Error: ', err.message);
+          return res.status(500).send('Error Finding Key.')
+        })
+    })
+    .catch((err) => {
+      console.error('Error: ', err.message);
+      return res.status(500).send('Error Finding SmartTable.');
+    })
+};
+
+module.exports.remove = (req, res) => {
+  if (!req.body.smartTableId) {
+    return res.status(400).send('Please Provide smartTableId.');
+  };
+  const smartTableId = req.body.smartTableId;
+
+  if (!req.body.keyId) {
+    return res.status(400).send('Please Provide keyId.');
+  };
+  const keyId = req.body.keyId;
+
+  SmartTable.findById(smartTableId)
+    .then((smartTable) => {
+      if (!smartTable) {
+        return res.status(404).send('smartTable with provided Id not found.');
+      };
+
+      Key.findById(keyId)
+        .then((key) => {
+          if (!key) {
+            return res.status(404).send('key with provided Id not found.');
+          };
+
+          const removeIndex = smartTable.metadata.keysList.indexOf(key._id);
+          if (removeIndex === -1) {
+            return res.status(400).send('Invalid Key.');
+          };
+
+          const removed = smartTable.metadata.keysList.splice(removeIndex, 1);
+          if (removed.length !== 1) {
+            return res.status(500).send('Something Went Wrong.');
+          };
+
+          if (removed[0] !== key._id.toHexString()) {
+            console.log("Actually Removed: ", removed);
+            console.log("Intended to Remove: ", smartTable.metadata.keysList[removeIndex]);
+            return res.status(500).send('Something Went Wrong.');
+          };
+
+          smartTable.save()
+            .then((savedSmartTable) => {
+              if ((smartTable.metadata.keysList.length - savedSmartTable.metadata.keysList.length) === 1) {
+                console.log("Old: ", smartTable.metadata.keysList);
+                console.log("New: ", savedSmartTable.metadata.keysList);
+                return res.status.send('Something Went Wrong.');
+              };
+              return res.send('Removed key to keysList successfully.');
+            })
+            .catch((err) => {
+              console.error('Error: ', err.message);
+              return res.status(500).send('Something Went Wrong.');
+            })
+        })
+        .catch((err) => {
+          console.error('Error: ', err.message);
+          return res.status(500).send('Error Finding Key.')
+        })
+    })
+    .catch((err) => {
+      console.error('Error: ', err.message);
+      return res.status(500).send('Error Finding SmartTable.');
+    })
+};
+
+module.exports.info = (req, res) => {
+  if (!req.body.smartTableId) {
+    return res.status(400).send('Please Provide smartTableId.');
+  };
+  const smartTableId = req.body.smartTableId;
+
+  SmartTable.findById(smartTableId)
+    .then((smartTable) => {
+      if (!smartTable) {
+        return res.status(500).send("Something Went Wrong.");
+      };
+
+      SmartTable.aggregate([
+        { $match: { _id: { $exists: true } } },
+        { $project: { stId: { $toString: "$_id" }, metadata: 1, content: 1 } },
+        { $match: { stId: smartTableId } },
+        {
+          $project: {
+            keyIds: {
+              $map: {
+                input: "$metadata.keysList",
+                as: "id",
+                in: {
+                  $toObjectId: "$$id"
+                }
+              }
+            },
+            _id: 0,
+            stId: 1,
+            stName: "$content.name",
+            metadata: 1
+          }
+        },
+        {
+          $lookup:
+          {
+            from: "keys",
+            localField: "keyIds",
+            foreignField: "_id",
+            as: "keys"
+          }
+        },
+        {
+          $project: {
+            stId: 1, stName: 1, metadata: 1,
+            keys: {
+              $map: {
+                input: "$keys",
+                as: "key",
+                in: {
+                  keyId: "$$key._id",
+                  keyName: "$$key.content.keyName",
+                  keyStatus: "$$key.metadata.status"
+                }
+              }
+            }
+          }
+        },
+        {
+          $project: {
+            stId: 1, stName: 1, keys: 1,
+            stTables: "$metadata.sourceTableIds",
+          }
+        }
+      ])
+        .then((aggregationResult) => {
+          if (!aggregationResult.length) {
+            return res.status(500).send('Something Went Wrong.');
+          };
+          const unorderedInfo = aggregationResult[0];
+          console.log("####", unorderedInfo);
+
+          // ordering the info.keys according to smartTable.metadata.keysList original (user-defined) order
+          const orderedKeys = smartTable.metadata.keysList.map((k) => unorderedInfo.keys.find((_k) => _k.keyId.toHexString() === k));
+          const orderedInfo = {
+            ...unorderedInfo,
+            keys: orderedKeys
+          }
+          console.log(orderedInfo);
+          return res.json(orderedInfo);
+        })
+        .catch((err) => {
+          console.error('Error: ', err.message);
+          return res.status(500).send('Something Went Wrong.');
+        })
+    })
+    .catch((err) => {
+      console.error('Error: ', err.message);
+      return res.status(500).send('Something Went Wrong.');
+    })
+
+};
