@@ -16,16 +16,13 @@ module.exports.updateKey = (label, newKeyId, cb) => {
 };
 
 module.exports.list = (req, res) => {
-  if (!req.query.statusList) {
-    return res.status(400).send('Please Provide statusList.')
-  }
-
-  if (req.query.statusList.includes("in-trash")) {
-    return res.status(400).send('Cannot List Keys that have an "in-trash" status.')
-  }
+  // if (!req.query.statusList) {
+  //   return res.status(400).send('Please Provide statusList.')
+  // };
+  // const statusList = req.query.statusList;
 
   Key.aggregate([
-    { $match: { "metadata.status": { $in: req.query.statusList || ["active"] } } },
+    { $match: { "metadata.inTrash": false, "metadata.status": "active" } },
     { $project: { keyType: "$metadata.keyType", keyName: "$content.keyName", _id: 0, keyId: { $toString: "$_id" } } },
   ])
     .then((allKeys) => {
