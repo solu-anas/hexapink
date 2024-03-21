@@ -273,6 +273,33 @@ module.exports.list = (req, res) => {
         "metadata.status": { $in: statusList },
       },
     },
+    {
+      $lookup:
+      {
+        from: "labels",
+        localField: "metadata.labels",
+        foreignField: "_id",
+        as: "labels"
+      }
+    },
+    {
+      $project: {
+        _id: 0,
+        tableId: "$_id",
+        labels: {
+          $map: {
+            input: "$labels",
+            as: "label",
+            in: {
+              labelId: "$$label._id",
+              labelName: "$$label.content.name",
+              KeyId: "$$label.metadata.keyId"
+            }
+          }
+        }
+      }
+    },
+
     { $limit: parseInt(req.query.limit) || 10 },
   ];
 

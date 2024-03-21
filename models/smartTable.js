@@ -6,10 +6,10 @@ const smartTableSchema = new Schema({
         required: true
     },
     metadata: {
-        status : {
+        status: {
             type: String,
-            enum: ["empty", "filled"],
-            default: "empty"
+            enum: ["active"],
+            default: "active"
         },
         inTrash: {
             type: Boolean,
@@ -26,6 +26,6 @@ const smartTableSchema = new Schema({
         },
         collections: [Types.ObjectId]
     }
-}, {timestamps: true});
+}, { timestamps: true });
 
 module.exports.SmartTable = model("SmartTable", smartTableSchema);

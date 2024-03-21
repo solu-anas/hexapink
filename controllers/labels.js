@@ -39,7 +39,7 @@ module.exports.link = (req, res) => {
                 return res.status(404).send('there is no label with the provided id')
             }
             Table.aggregate([
-                { $match: { "metadata.labels": { $in: [label._id] } } }
+                { $match: { "metadata.labels": { $in: [label._id] }, "metadata.status": "convert-complete" } }
             ])
                 .then((tables) => {
                     if (!tables.length) {
