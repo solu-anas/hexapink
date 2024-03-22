@@ -1,5 +1,7 @@
 const router = require('express').Router();
-const { getSmartTableData, create, attach, detach, read, list, getValidSourceTables, rename, trash, restore, order, add, remove, getKeys, info } = require('../controllers/smart-tables');
+const { create, attach, detach, read, list, rename, trash, restore, order, add, remove, deleteSmartTables } = require('../controllers/smart-tables');
+const { getSmartTableData, getValidSourceTables } = require('../middleware/smart-tables');
+
 
 router.post('/create', create);
 router.post('/attach', [getSmartTableData, getValidSourceTables], attach);
@@ -30,5 +32,6 @@ router.get('/valid-tables', getSmartTableData, getValidSourceTables, (req, res) 
 router.get('/read', getSmartTableData, getValidSourceTables, read);
 router.get('/list', list);
 
+router.delete('/delete', deleteSmartTables);
 
 module.exports = router;

@@ -41,8 +41,6 @@ module.exports.insertTransform = (table, insertTransformCallback) => {
 
 const insertRecord = (chunk, table, cb) => {
   const chunkEntries = Object.entries(chunk);
-  console.log("chunk", chunk);
-  console.log("chunk entries", chunkEntries);
 
   if (!chunkEntries.length) {
     return cb({ message: "empty chunk" });

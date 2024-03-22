@@ -2,5 +2,6 @@
 /uploads
 /.obsidian
 /test-files
+/tests
 tasks.md
 playground.js

@@ -101,3 +101,56 @@ module.exports.restore = (req, res) => {
     res.send('Key Restored Successfully.');
   });
 };
+
+module.exports.deleteKeys = async (req, res) => {
+  if (!req.body.keyIds?.length) {
+    return res.status(400).send('Please Provide keyIds');
+  };
+
+  const keyIds = req.body.keyIds;
+  try {
+    let check = 0;
+    const pipeline = [];
+
+    pipeline.push({ $match: { _id: { $exists: true } } });
+    pipeline.push({ $project: { _id: { $toString: "$_id" }, metadata: 1 } });
+    pipeline.push({ $match: { _id: { $in: keyIds } } });
+    pipeline.push({ $project: { keyId: "$_id", inTrash: "$metadata.inTrash", _id: 0 } });
+    const keys = await Key.aggregate([pipeline]);
+    console.log(keys);
+
+
+    if (!keys?.length) {
+      return res.status(500).send('At least one of the Ids is invalid.');
+    };
+
+    const allInTrash = keys.every((key) => key.inTrash === true);
+    if (!allInTrash) {
+      return res.status(500).send('Can\'t delete a key not yet in Trash.');
+    }
+
+    for (const key of keys) {
+      const { acknowledged } = await Label.updateMany({ "metadata.keyId": key.keyId }, { $unset: { "metadata.keyId": "" } });
+      if (!acknowledged) {
+        res.status(500).send('Something Went Wrong while unlinking Labels.');
+        break;
+      }
+      else if (acknowledged) {
+        const { deletedCount } = await Key.deleteOne({ _id: key.keyId });
+        if (!deletedCount) {
+          res.status(500).send('Something Went Wrong.');
+          break;
+        }
+        else if (deletedCount) {
+          if (check === (keyIds.length - 1)) {
+            return res.send('Deleted Key(s) successfully.');
+          }
+          ++check;
+        }
+      }
+    }
+  } catch (err) {
+    console.error(err.message);
+    return res.status(500).send('Something Went Wrong.');
+  }
+};

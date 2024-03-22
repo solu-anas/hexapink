@@ -9,7 +9,6 @@ const { pipeline } = require("stream");
 const { join } = require("path");
 const csv = require("csv-parser");
 const formidable = require("formidable").formidable;
-
 const fs = require("fs");
 
 module.exports.convert = (req, res) => {
@@ -52,9 +51,6 @@ module.exports.convert = (req, res) => {
         quote: quote || "\"",
         newline: newline || "\n"
       });
-      parser.once("data", (data) => {
-        console.log(data);
-      })
       const inserter = insertTransform(table, ({ type, message }) => {
         switch (type) {
           case "error":
@@ -204,7 +200,8 @@ module.exports.upload = (req, res) => {
 module.exports.read = (req, res) => {
   if (!(req.query.tableId)) {
     return res.status(500).send("Please provide a tableId");
-  }
+  };
+
   const tableId = req.query.tableId;
   const tablePipeline = [
     {
@@ -510,3 +507,57 @@ module.exports.order = (req, res) => {
   }
 };
 
+module.exports.deleteTables = async (req, res) => {
+  if (!req.body.tableIds) {
+    return res.status(400).send('Please Provide tableIds');
+  };
+
+  if (!req.body.tableIds.length) {
+    return res.status(400).send('tableIds can\'t be empty.');
+  };
+
+  const tableIds = req.body.tableIds;
+  try {
+    let check = 0;
+    const pipeline = [];
+
+    pipeline.push({ $match: { _id: { $exists: true } } });
+    pipeline.push({ $project: { _id: { $toString: "$_id" }, metadata: 1 } });
+    pipeline.push({ $match: { _id: { $in: tableIds } } });
+    pipeline.push({ $project: { tableId: "$_id", inTrash: "$metadata.inTrash", _id: 0 } });
+    const tables = await Table.aggregate([pipeline]);
+
+    if (!tables?.length) {
+      return res.status(500).send('At least one of the Ids is invalid.');
+    };
+
+    const allInTrash = tables.every((table) => table.inTrash === true);
+    if (!allInTrash) {
+      return res.status(500).send('Can\'t delete a table not yet in Trash.');
+    }
+    
+    for (const table of tables) {
+      const { acknowledged } = await Record.deleteMany({ "metadata.tableId": table.tableId });
+      if (!acknowledged) {
+        res.status(500).send('Something Went Wrong while deleting Records.');
+        break;
+      }
+      else if (acknowledged) {
+        const { deletedCount } = await Table.deleteOne({ _id: table.tableId });
+        if (!deletedCount) {
+          res.status(500).send('Something Went Wrong.');
+          break;
+        }
+        else if (deletedCount) {
+          if (check === (tableIds.length - 1)) {
+            return res.send('Deleted Table(s) successfully.');
+          }
+          ++check;
+        }
+      }
+    }
+  } catch (err) {
+    console.error(err.message);
+    return res.status(500).send('Something Went Wrong.');
+  }
+};
