@@ -1,8 +1,9 @@
 const { Key } = require('../models/Key');
 const { Label } = require('../models/Label');
+const { Table } = require('../models/Table');
 const { toggleTrash } = require('./trash');
 
-module.exports.updateKey = (label, newKeyId, cb) => {
+module.exports.updateLabelKeyId = (label, newKeyId, cb) => {
   label.metadata.keyId = newKeyId;
   label
     .save()
@@ -69,11 +70,14 @@ module.exports.listLabels = (req, res) => {
   Key.findById(req.query.keyId)
     .then((key) => {
       if (!key) {
-        return res.status(404).send('There are no Key with the specified Id.');
+        return res.status(404).send('There is no Key with the specified Id.');
       }
+      // Table.aggregate([
+      //   {$match: }
+      // ])
       Label.aggregate([
         { $match: { "metadata.keyId": key._id } },
-        { $project: { _id: 0, "labelId": "$_id", "labelName": "$content.name" } },
+        { $project: { _id: 0, "labelId": "$_id", "labelName": "$content.name", "tableId": "$metadata.tableId" } },
         { $project: { keyId: 0 } }
       ])
         .then((linkedLabels) => {
@@ -81,12 +85,12 @@ module.exports.listLabels = (req, res) => {
         })
         .catch((err) => {
           console.error('Error: ', err.message);
-          return res.status(500).send('Something Went Wrong.');
+          return res.status(500).send('Error finding labels.');
         })
     })
     .catch((err) => {
       console.error('Error: ', err.message);
-      return res.status(500).send('Something Went Wrong.');
+      return res.status(500).send('Error finding key.');
     });
 };
 

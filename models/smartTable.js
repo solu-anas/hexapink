@@ -20,10 +20,17 @@ const smartTableSchema = new Schema({
             type: [String],
             required: true
         },
-        sourceTableIds: {
-            type: [String],
-            default: null
-        },
+        sourceTables: [{
+            _id: false,
+            tableId: {
+                type: String,
+                required: true
+            },
+            isActive: {
+                type: Boolean,
+                required: true
+            }
+        }],
         collections: [Types.ObjectId]
     }
 }, { timestamps: true });

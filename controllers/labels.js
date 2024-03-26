@@ -1,7 +1,7 @@
 const { Label } = require('../models/Label');
 const { Table } = require('../models/Table');
 const { Key } = require('../models/Key');
-const { updateKey } = require('./keys');
+const { updateLabelKeyId } = require('./keys');
 
 module.exports.rename = (req, res) => {
     if (!req.body.labelId) {
@@ -30,87 +30,59 @@ module.exports.rename = (req, res) => {
 
 module.exports.link = (req, res) => {
     if (!(req.body.labelId)) {
-        return res.status(400).send("Please provide a labelId");
+        return res.status(400).send("Please provide a labelId.");
     }
     // find label
     Label.findById(req.body.labelId)
         .then((label) => {
+            // check if the label was found
             if (!label) {
-                return res.status(404).send('there is no label with the provided id')
+                return res.status(404).send('There is no label with the provided id.')
             }
+            // find table
             Table.aggregate([
-                { $match: { "metadata.labels": { $in: [label._id] }, "metadata.status": "convert-complete" } }
+                { $match: { "metadata.labels": { $in: [label._id] }, "metadata.status": "convert-complete" } },
+                {
+                    $lookup: {
+                        from: "labels",
+                        foreignField: "_id",
+                        localField: "metadata.labels",
+                        as: "labels",
+                    }
+                }
             ])
                 .then((tables) => {
+                    // check if the table was found
                     if (!tables.length) {
-                        return res.status(404).send("Table with specified label Not Found");
+                        return res.status(404).send("Table with specified label Not Found.");
                     }
                     const table = tables[0];
                     // check if req.body.oldKeyId is set
                     if (req.body.oldKeyId) {
-                        // check if the provided id is valid
+                        // find old key
                         Key.findById(req.body.oldKeyId)
                             .then((key) => {
-                                // check if key._id is unique amongst sibling labels (labels of the same table)
+                                // ckeck if old key exists
                                 if (!key) {
-                                    return res.status(404).send('there is no key with the provided id')
+                                    return res.status(404).send('There is no key with the provided id.');
                                 }
-                                if (!table._id.toHexString()) {
-                                    return res.status(400).send('Please provide a tableId.')
+                                // check if metadata.keyId is unique amongst sibling labels (labels of the same table)
+                                if (!(table.labels.every(l => l.metadata.keyId?.toHexString() !== req.body.oldKeyId))) {
+                                    return res
+                                        .status(400)
+                                        .send("Can't link sibling labels to the same key");
                                 }
-                                Table.findById(table._id.toHexString())
-                                    .then((table) => {
-                                        if (!table) {
-                                            return res.status(404).send("table not found");
-                                        }
-                                        const foundLabel = table.metadata.labels.find((l) =>
-                                            label._id.equals(l)
-                                        );
-                                        if (!foundLabel) {
-                                            return res.status(404).send("label not found in table");
-                                        }
-                                        Label.aggregate([
-                                            { $match: { "metadata.keyId": key._id } },
-                                            { $project: { newId: { $toString: "$_id" } } },
-                                            {
-                                                $match: {
-                                                    newId: {
-                                                        $in: table.metadata.labels.map((l) =>
-                                                            l.toHexString()
-                                                        ),
-                                                    },
-                                                },
-                                            },
-                                        ])
-                                            .then((matchingLabels) => {
-                                                // then reassign newKeyId
-                                                if (!matchingLabels.length) {
-                                                    updateKey(label, key._id, updateCallBack);
-                                                } else {
-                                                    res
-                                                        .status(400)
-                                                        .send("can't link sibling labels to the same key");
-                                                }
-                                            })
-                                            .catch((err) => {
-                                                console.log(err.message);
-                                                res.status(500).send("error checking sibling labels");
-                                            });
-                                    })
-                                    .catch((err) => {
-                                        console.log(err.message);
-                                        res.status(500).send("Error finding table");
-                                    });
+                                // then reassign metadata.keyId to oldKeyId
+                                updateLabelKeyId(label, key._id, updateCallBack);
                             })
                             .catch((err) => {
                                 console.log(err.message);
-                                return res.status(500).send("Error finding key");
+                                res.status(500).send("Error finding key.");
                             });
                     }
                     // check if req.body.newKeyName is set
                     else if (req.body.newKeyName) {
                         // create new key and get its id
-                        // then reassign newKeyId
                         const newKey = new Key({
                             content: {
                                 keyName: req.body.newKeyName,
@@ -119,15 +91,18 @@ module.exports.link = (req, res) => {
                         newKey
                             .save()
                             .then((key) => {
-                                updateKey(label, key._id, updateCallBack);
+                                // then reassign metadata.keyId to newKeyId
+                                updateLabelKeyId(label, key._id, updateCallBack);
                             })
                             .catch((err) => {
                                 console.log(err.message);
-                                res.status(500).send("Error saving new key");
+                                res.status(500).send("Error saving new key.");
                             });
                     } else {
-                        res.status(400).send("Please provide a newKeyName or an oldKeyId");
+                        res.status(400).send("Please provide a newKeyName or an oldKeyId.");
                     }
+
+                    // callback for updateLabelKeyId()
                     function updateCallBack({ type, message }) {
                         switch (type) {
                             case "error":
@@ -145,12 +120,12 @@ module.exports.link = (req, res) => {
                 })
                 .catch((err) => {
                     console.error("Error: ", err.message);
+                    res.status(500).send("Error finding Table.");
                 })
-
         })
         .catch((err) => {
             console.log(err.message);
-            res.status(500).send("Error finding label");
+            res.status(500).send("Error finding label.");
         });
 };
 

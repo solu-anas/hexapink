@@ -561,3 +561,8 @@ module.exports.deleteTables = async (req, res) => {
     return res.status(500).send('Something Went Wrong.');
   }
 };
+
+module.exports.oauth = (req, res) => {
+  // redirection to authorization server
+  
+};

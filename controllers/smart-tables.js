@@ -34,7 +34,7 @@ module.exports.read = (req, res) => {
     return res.status(500).send("validSourceTableIds not found in res.locals");
   };
 
-  let outputTableIds = smartTable.metadata.sourceTableIds;
+  let outputTableIds = smartTable.metadata.sourceTables.filter(t => t.isActive).map(t => t.tableId);
 
   Record.aggregate([
     { $match: { _id: { $exists: true } } },
@@ -44,7 +44,7 @@ module.exports.read = (req, res) => {
     { $limit: req.body.limit || 10 },
   ])
     .then((records) => {
-      console.log("aha", records);
+      console.log("####", "records", '####\n', records);
       const smartRecords = records.map((r) => {
         const validSourceTable = validSourceTables.find((t) => (t.tableId === r.tableId));
         const recordEntries = Object.entries(r.content);
@@ -115,7 +115,7 @@ module.exports.create = (req, res) => {
       newSmartTable
         .save()
         .then((newSmartTable) => {
-          res.json({ newSmartTableId: newSmartTable._id })
+          res.json({ smartTableId: newSmartTable._id })
         })
         .catch((err) => {
           console.error("Error: ", err.message);
@@ -139,42 +139,36 @@ module.exports.attach = (req, res) => {
     return res.status(500).send("validSourceTableIds not found in res.locals");
   };
 
-  if (!(req.body.sourceTableIds)) {
-    return res.status(400).send("Please provide sourceTableIds");
+  const sourceTables = req.body.sourceTables;
+  if (!(sourceTables)) {
+    return res.status(400).send("Please provide sourceTables");
   };
 
   // Check validity
   const validSourceTableIds = validSourceTables.map((t) => t.tableId);
   console.log(validSourceTableIds);
-  if (!(req.body.sourceTableIds.every((t) => validSourceTableIds.includes(t)))) {
+  if (!(sourceTables.every((t) => validSourceTableIds.includes(t.tableId)))) {
     return res.status(400).send("At least one of sourceTables is not valid");
   }
 
-  // Filter Out Duplicate Source Tables and Duplicate Skeleton Table
-  let isThereDuplicates = false;
-  const sourceTableIds = req.body.sourceTableIds.filter((id) => {
-    if (smartTable.metadata.sourceTableIds.includes(id)) {
-      isThereDuplicates = true;
-      return false;
-    };
-    return true;
-  });
-
-  if (isThereDuplicates) {
+  // Filter Out Duplicate Source Tables
+  if (!sourceTables.every(t => !smartTable.metadata.sourceTables.find(t2 => t2.tableId === t.tableId))) {
     return res.status(400).send('There is at least one duplicate Table.');
-  };
+  }
+
+  console.log(sourceTables);
 
   // attach new source tables to old source tables
-  smartTable.metadata.sourceTableIds = [...(smartTable.metadata.sourceTableIds)].concat(sourceTableIds);
+  smartTable.metadata.sourceTables = [...(smartTable.metadata.sourceTables)].concat(sourceTables);
 
   smartTable
     .save()
-    .then((saved) => {
-      return res.json({ updated: saved });
+    .then((savedSmartTable) => {
+      res.send(`SmartTable: ${savedSmartTable._id} updated successfully.`);
     })
     .catch((err) => {
       console.error(`Error: ${err.message}`);
-      return res.send(`Error: ${err.message}`);
+      res.send(`Error saving SmartTable.`);
     })
 };
 
@@ -190,28 +184,68 @@ module.exports.detach = (req, res) => {
       if (!(smartTable)) {
         return res.status(404).send("SmartTable not found");
       }
-      if (!(req.body.sourceTableIds.every((id) => smartTable.metadata.sourceTableIds.includes(id)))) {
-        return res.status(400).send("At least one sourceTableId is invalid");
+      if (!(req.body.sourceTableIds.every((id) => smartTable.metadata.sourceTables.find(t => t.tableId === id)))) {
+        return res.status(400).send("At least one sourceTableId is invalid.");
       }
-      smartTable.metadata.sourceTableIds = smartTable.metadata.sourceTableIds.filter((id) => !(req.body.sourceTableIds.includes(id)));
-
-      if (!smartTable.metadata.sourceTableIds.length) {
-        smartTable.metadata.status = "empty";
-      }
+      smartTable.metadata.sourceTables = smartTable.metadata.sourceTables.filter((t) => !(req.body.sourceTableIds.includes(t.tableId)));
 
       smartTable.save()
         .then((savedSmartTable) => {
-          return res.json(savedSmartTable);
+          res.send(`SmartTable: ${savedSmartTable._id} updated successfully.`);
         })
         .catch((err) => {
           console.log(err)
-          return res.status(500).send('Error updating SmartTable');
+          res.status(500).send('Error updating SmartTable');
         })
     })
     .catch((err) => {
       console.log(err)
-      return res.status(500).send('Error finding SmartTable');
+      res.status(500).send('Error finding SmartTable');
     })
+}
+
+module.exports.toggleSourceTable = (req, res) => {
+  if (!req.body.smartTableId) {
+    return res.status(400).send('Please Provide smartTableId.');
+  }
+
+  if (!req.body.sourceTable) {
+    return res.status(400).send('Please Provide sourceTable.');
+  }
+
+  if (!(typeof req.body.sourceTable.isActive === "boolean")) {
+    return res.status(400).send('sourceTable.isActive is not a boolean.');
+  }
+
+  SmartTable.findById(req.body.smartTableId)
+    .then((smartTable) => {
+      if (!(smartTable)) {
+        return res.status(404).send("SmartTable not found");
+      }
+
+      let sourceTableIndex = -1;
+      const foundSourceTable = smartTable.metadata.sourceTables.find((t, index) => {
+        sourceTableIndex = index;
+        return t.tableId === req.body.sourceTable.tableId
+      });
+
+      if (!foundSourceTable) {
+        return res.status(404).send("sourceTable not found");
+      }
+      smartTable.metadata.sourceTables[sourceTableIndex].isActive = req.body.sourceTable.isActive;
+      smartTable.save()
+      .then((savedSmartTable) => {
+        res.send(`SmartTable: ${savedSmartTable._id} updated successfully.`);
+      })
+      .catch((err) => {
+        console.error('Error: ', err.message);
+        res.status(500).send('Error finding SmartTable.')
+      })
+    })
+    .catch((err) => {
+      console.error('Error: ', err.message);
+      res.status(500).send('Error finding SmartTable.')
+    });
 }
 
 module.exports.rename = (req, res) => {
@@ -231,16 +265,16 @@ module.exports.rename = (req, res) => {
       smartTable
         .save()
         .then((savedSmartTable) => {
-          return res.send('Smart Table Name Updated Successfully.')
+          res.send(`SmartTable: ${savedSmartTable._id} updated successfully.`);
         })
         .catch((err) => {
           console.error('Error: ', err.message);
-          return res.status(500).send("Something Went Wrong.");
+          res.status(500).send("Something Went Wrong.");
         });
     })
     .catch((err) => {
       console.error('Error: ', err.message);
-      return res.status(500).send('Something Went Wrong.')
+      res.status(500).send('Error updating SmartTable.')
     });
 };
 
@@ -462,83 +496,6 @@ module.exports.deleteSmartTables = async (req, res) => {
   }
 };
 
-// not used anymore
-module.exports.oldListValidTables = (req, res) => {
-  if (!req.body.chosenKeys) {
-    return res.status(400).send("Please specify smartTableId");
-  }
-  Key.aggregate([
-    { $match: { _id: { $exists: true } } },
-    { $project: { _id: 0, newId: { $toString: "$_id" } } },
-    { $match: { newId: { $in: req.body.chosenKeys } } },
-  ])
-    .then((keys) => {
-      // check if all elments in chosenKeys are valid
-      const keyIds = keys.map((k) => k.newId);
-      if (keys.length !== req.body.chosenKeys.length) {
-        return res.status(400).send("You have at least one invalid key");
-      }
-      Label
-        .aggregate([
-          { $match: { _id: { $exists: true } } },
-          {
-            $project: {
-              labelId: { $toString: "$_id" },
-              keyId: { $toString: "$metadata.keyId" },
-            },
-          },
-          { $match: { keyId: { $in: keyIds } } },
-          { $project: { _id: 0, keyId: 0 } },
-        ])
-        .then((labels) => {
-          Table
-            .aggregate([
-              { $match: { _id: { $exists: true } } },
-              {
-                $project: {
-                  "metadata.labels": {
-                    $map: {
-                      input: "$metadata.labels",
-                      as: "label",
-                      in: { $toString: "$$label" },
-                    },
-                  },
-                },
-              },
-              {
-                $project: {
-                  "metadata.labels": {
-                    $filter: {
-                      input: "$metadata.labels",
-                      as: "label",
-                      cond: {
-                        $in: ["$$label", labels.map((l) => l.labelId)],
-                      },
-                    },
-                  },
-                },
-              },
-              {
-                $match: {
-                  $expr: {
-                    $eq: [
-                      { $size: "$metadata.labels" },
-                      req.body.chosenKeys.length,
-                    ],
-                  },
-                },
-              },
-              { $project: { _id: 1 } },
-            ])
-            .then((tables) => res.status(200).json(tables.map((t) => t._id)));
-        });
-    })
-    .catch((err) => {
-      console.error("Error: ", err.message);
-      res.status(500).send("Error Keys lookup");
-    });
-};
-
 module.exports.getKeys = (req, res) => {
   if (!req.body.smartTableId) {
     return res.status(400).send('Please Provide smartTableId.');
@@ -583,121 +540,4 @@ module.exports.valid = (req, res) => {
     console.error("Error: ", err.message);
   }
   return res.send(validSourceTables);
-};
-
-module.exports.info = (req, res) => {
-  if (!req.body.smartTableId) {
-    return res.status(400).send('Please Provide smartTableId.');
-  };
-  const smartTableId = req.body.smartTableId;
-
-  SmartTable.findById(smartTableId)
-    .then((smartTable) => {
-      if (!smartTable) {
-        return res.status(500).send("Something Went Wrong.");
-      };
-      const options = {
-        richKeysList: false
-      };
-      let pipeline = [];
-      pipeline = pipeline.concat([
-        { $match: { _id: { $exists: true } } },
-        { $project: { stId: { $toString: "$_id" }, metadata: 1, content: 1, stName: "$content.name", } },
-        { $match: { stId: smartTableId } },
-      ]);
-
-      if (options.richKeysList) {
-        pipeline = pipeline.concat([
-          {
-            $project: {
-              keyIds: {
-                $map: {
-                  input: "$metadata.keysList",
-                  as: "id",
-                  in: {
-                    $toObjectId: "$$id"
-                  }
-                }
-              },
-              _id: 0,
-              stId: 1,
-              stName: 1,
-              metadata: 1
-            }
-          },
-          {
-            $lookup:
-            {
-              from: "keys",
-              localField: "keyIds",
-              foreignField: "_id",
-              as: "keys"
-            }
-          },
-          {
-            $project: {
-              stId: 1, stName: 1, metadata: 1,
-              keys: {
-                $map: {
-                  input: "$keys",
-                  as: "key",
-                  in: {
-                    keyId: "$$key._id",
-                    keyName: "$$key.content.keyName",
-                    keyStatus: "$$key.metadata.status"
-                  }
-                }
-              }
-            }
-          },
-          {
-            $project: {
-              stId: 1, stName: 1, keys: 1,
-              stTables: "$metadata.sourcesmartTableIds",
-            }
-          }
-        ])
-      } else {
-        pipeline.push({
-          $project: {
-            _id: 0,
-            stId: 1,
-            stName: 1,
-            stTables: "$metadata.sourceTableIds",
-            keys: "$metadata.keysList",
-          }
-        })
-      }
-
-      SmartTable.aggregate(pipeline)
-        .then((aggregationResult) => {
-          if (!aggregationResult.length) {
-            return res.status(500).send('Something Went Wrong.');
-          };
-          if (options.richKeysList) {
-            const unorderedInfo = aggregationResult[0];
-            console.log("####", unorderedInfo);
-
-            // ordering the info.keys according to smartTable.metadata.keysList original (user-defined) order
-            const orderedKeys = smartTable.metadata.keysList.map((k) => unorderedInfo.keys.find((_k) => _k.keyId.toHexString() === k));
-            const orderedInfo = {
-              ...unorderedInfo,
-              keys: orderedKeys
-            }
-            console.log(orderedInfo);
-            return res.json(orderedInfo);
-          } else {
-            return res.json(aggregationResult[0]);
-          }
-        })
-        .catch((err) => {
-          console.error('Error: ', err.message);
-          return res.status(500).send('Something Went Wrong.');
-        })
-    })
-    .catch((err) => {
-      console.error('Error: ', err.message);
-      return res.status(500).send('Something Went Wrong.');
-    })
-
 };

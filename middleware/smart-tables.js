@@ -23,7 +23,7 @@ module.exports.getSmartTableData = (req, res, next) => {
     SmartTable.findById(smartTableId)
         .then((smartTable) => {
             if (!smartTable) {
-                return res.status(500).send("Something Went Wrong.");
+                return res.status(404).send("SmartTable not found.");
             };
             const options = {
                 richKeysList: true
@@ -31,8 +31,8 @@ module.exports.getSmartTableData = (req, res, next) => {
             let pipeline = [];
             pipeline = pipeline.concat([
                 { $match: { _id: { $exists: true } } },
-                { $project: { stId: { $toString: "$_id" }, metadata: 1, content: 1, stName: "$content.name", } },
-                { $match: { stId: smartTableId } },
+                { $project: { smartTableId: { $toString: "$_id" }, metadata: 1, content: 1, smartTableName: "$content.name", } },
+                { $match: { smartTableId: smartTableId } },
             ]);
 
             if (options.richKeysList) {
@@ -49,8 +49,8 @@ module.exports.getSmartTableData = (req, res, next) => {
                                 }
                             },
                             _id: 0,
-                            stId: 1,
-                            stName: 1,
+                            smartTableId: 1,
+                            smartTableName: 1,
                             metadata: 1
                         }
                     },
@@ -65,7 +65,8 @@ module.exports.getSmartTableData = (req, res, next) => {
                     },
                     {
                         $project: {
-                            stId: 1, stName: 1, metadata: 1,
+                            smartTableId: 1,
+                            smartTableName: 1,
                             keys: {
                                 $map: {
                                     input: "$keys",
@@ -73,26 +74,21 @@ module.exports.getSmartTableData = (req, res, next) => {
                                     in: {
                                         keyId: { $toString: "$$key._id" },
                                         keyName: "$$key.content.keyName",
-                                        keyStatus: "$$key.metadata.status"
+                                        isActive: "$$key.metadata.isActive"
                                     }
                                 }
-                            }
+                            },
+                            sourceTables: "$metadata.sourceTables",
                         }
                     },
-                    {
-                        $project: {
-                            stId: 1, stName: 1, keys: 1,
-                            stTables: "$metadata.sourceTableIds",
-                        }
-                    }
                 ])
             } else {
                 pipeline.push({
                     $project: {
                         _id: 0,
-                        stId: 1,
-                        stName: 1,
-                        stTables: "$metadata.sourceTableIds",
+                        smartTableId: 1,
+                        smartTableName: 1,
+                        sourceTables: "$metadata.sourceTables",
                         keys: "$metadata.keysList",
                     }
                 })
@@ -105,7 +101,6 @@ module.exports.getSmartTableData = (req, res, next) => {
                     };
                     if (options.richKeysList) {
                         const unorderedInfo = aggregationResult[0];
-                        console.log("####", unorderedInfo);
 
                         // ordering the info.keys according to smartTable.metadata.keysList original (user-defined) order
                         const orderedKeys = smartTable.metadata.keysList.map((k) => unorderedInfo.keys.find((_k) => _k.keyId === k));
@@ -113,7 +108,6 @@ module.exports.getSmartTableData = (req, res, next) => {
                             ...unorderedInfo,
                             keys: orderedKeys
                         }
-                        console.log(orderedInfo);
                         // return res.json(orderedInfo);
                         res.locals.smartTableData = {
                             smartTable,
@@ -135,7 +129,7 @@ module.exports.getSmartTableData = (req, res, next) => {
         })
         .catch((err) => {
             console.error('Error: ', err.message);
-            return res.status(500).send('Something Went Wrong.');
+            return res.status(500).send('Error finding SmartTable.');
         })
 };
 

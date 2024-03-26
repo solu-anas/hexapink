@@ -1,4 +1,4 @@
-const { Types, Schema, model } = require("mongoose");
+const { Schema, model } = require("mongoose");
 
 const keySchema = new Schema({
   content: {
@@ -9,10 +9,9 @@ const keySchema = new Schema({
       type: String,
       default: "all",
     },
-    status: {
-      type: String, 
-      enum: ["active"],
-      default: "active"
+    isActive: {
+      type: Boolean,
+      default: true
     },
     inTrash: {
       type: Boolean,
