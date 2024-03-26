@@ -283,6 +283,7 @@ module.exports.list = (req, res) => {
       $project: {
         _id: 0,
         tableId: "$_id",
+        tableName: "$content.tableName",
         labels: {
           $map: {
             input: "$labels",

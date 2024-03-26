@@ -154,6 +154,7 @@ module.exports.getValidSourceTables = (req, res, next) => {
         },
         {
             $project: {
+                content: 1,
                 "validLabels": {
                     $filter: {
                         input: "$validLabels",
@@ -169,6 +170,7 @@ module.exports.getValidSourceTables = (req, res, next) => {
             $project: {
                 _id: 0,
                 tableId: { $toString: "$_id" },
+                tableName: "$content.tableName",
                 "validLabels": {
                     $map: {
                         input: "$validLabels",
