@@ -8,7 +8,7 @@ const trashRouter = require("../routes/trash");
 const { healthCheck } = require('../controllers/health');
 
 module.exports = (app) => {
-    app.use(cors({ origin: "http://localhost:3000", optionsSuccessStatus: 200 }));
+    app.use(cors({ origin: "*", optionsSuccessStatus: 200 }));
     app.use(express.json());
     app.get('/api/health', healthCheck);
     app.use("/api/tables", tablesRouter);

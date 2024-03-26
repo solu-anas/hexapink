@@ -93,7 +93,7 @@ module.exports.upload = (req, res) => {
 
   form.on('fileBegin', (formName, file) => {
     const allowedFileExtensions = ['csv'];
-    const allowedFileTypes = ['text/csv'];
+    const allowedFileTypes = ['text/csv', "application/vnd.ms-excel"];
     const fileExtension = file.originalFilename.slice(((file.originalFilename.lastIndexOf('.') - 1) >>> 0) + 2);
     const fileTypeError = new Error('Invalid File Type, only .csv files are allowed.');
 

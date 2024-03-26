@@ -23,7 +23,11 @@ module.exports.list = (req, res) => {
   // const statusList = req.query.statusList;
 
   Key.aggregate([
+<<<<<<< Updated upstream
     { $match: { "metadata.inTrash": false, "metadata.status": "active" } },
+=======
+    { $match: { "metadata.status": { $in: JSON.parse(req.query.statusList) || ["active"] } } },
+>>>>>>> Stashed changes
     { $project: { keyType: "$metadata.keyType", keyName: "$content.keyName", _id: 0, keyId: { $toString: "$_id" } } },
   ])
     .then((allKeys) => {
