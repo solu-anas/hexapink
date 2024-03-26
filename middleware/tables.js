@@ -16,18 +16,6 @@ module.exports.convert = (req, res) => {
   if (!tableId) {
     return res.status(400).send("Please provide a tableId");
   }
-  // if (!separator) {
-  //   return res.status(400).send("Please provide a separator");
-  // }
-  // if (!escape) {
-  //   return res.status(400).send("Please provide a escape");
-  // }
-  // if (!quote) {
-  //   return res.status(400).send("Please provide a quote");
-  // }
-  // if (!newline) {
-  //   return res.status(400).send("Please provide a newline");
-  // }
 
   Table
     .findById(tableId)

@@ -17,13 +17,9 @@ module.exports.updateLabelKeyId = (label, newKeyId, cb) => {
 };
 
 module.exports.list = (req, res) => {
-  // if (!req.query.statusList) {
-  //   return res.status(400).send('Please Provide statusList.')
-  // };
-  // const statusList = req.query.statusList;
 
   Key.aggregate([
-    { $match: { "metadata.status": { $in: JSON.parse(req.query.statusList) || ["active"] } } },
+    { $match: { "metadata.isActive": true } },
     { $project: { keyType: "$metadata.keyType", keyName: "$content.keyName", _id: 0, keyId: { $toString: "$_id" } } },
   ])
     .then((allKeys) => {
