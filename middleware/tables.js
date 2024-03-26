@@ -279,7 +279,7 @@ module.exports.list = (req, res) => {
             in: {
               labelId: "$$label._id",
               labelName: "$$label.content.name",
-              KeyId: "$$label.metadata.keyId"
+              keyId: "$$label.metadata.keyId"
             }
           }
         }
